@@ -30,7 +30,7 @@ export const calculateDistribution = (transactions: FinancialData[]): Distributi
     // --- LÓGICA DE DESPESA (OUTFLOW) ---
     if (t.type === TransactionType.EXPENSE) {
       let amountUSD = t.amount || 0; // QA Fix: Ensure not undefined
-      
+
       // Safety Spread para FX (Mantido, mas assume-se que amount já foi convertido pelo Form)
       if (t.currency === 'BRL') {
         amountUSD = amountUSD * (1 + RATES.FX_SAFETY_SPREAD);
@@ -45,7 +45,7 @@ export const calculateDistribution = (transactions: FinancialData[]): Distributi
           totalCOGS += amountUSD;
           // Mantemos o registro de quem originou o custo para relatórios
           if (t.originator) {
-             partnerPerformance[t.originator].cogs += amountUSD;
+            partnerPerformance[t.originator].cogs += amountUSD;
           }
         } else {
           totalOpEx += amountUSD;
@@ -55,7 +55,7 @@ export const calculateDistribution = (transactions: FinancialData[]): Distributi
         if (t.isReimbursable && t.reimbursementBeneficiary && t.reimbursementBeneficiary !== Partner.NONE) {
           // Safe access
           if (typeof reimbursementByPartner[t.reimbursementBeneficiary] === 'number') {
-              reimbursementByPartner[t.reimbursementBeneficiary] += amountUSD;
+            reimbursementByPartner[t.reimbursementBeneficiary] += amountUSD;
           }
         }
       }
@@ -68,10 +68,22 @@ export const calculateDistribution = (transactions: FinancialData[]): Distributi
 
       if (t.status === TransactionStatus.PAID) {
         realizedRevenue += gross;
-        
+
         // Atribui receita ao originador
         if (t.originator) {
-           partnerPerformance[t.originator].revenue += gross;
+          partnerPerformance[t.originator].revenue += gross;
+        }
+
+        // --- LÓGICA DE COMISSIONAMENTO EXTERNO (Treat as COGS) ---
+        // Se houver comissão externa definida na receita, ela entra como custo direto (COGS)
+        // Isso reduz a margem bruta global.
+        if (t.externalCommission && t.externalCommission > 0) {
+          const comm = t.externalCommission;
+          totalCOGS += comm;
+          // Opcional: Se quisermos rastrear quem "originou" esse custo (o parceiro da receita), podemos somar no bucket dele
+          if (t.originator) {
+            partnerPerformance[t.originator].cogs += comm;
+          }
         }
       }
     }
@@ -80,10 +92,10 @@ export const calculateDistribution = (transactions: FinancialData[]): Distributi
   // 4. Cálculos Derivados (Cash Basis)
   const grossMargin = realizedRevenue - totalCOGS; // Margem de Contribuição Global (Realizada)
   const netIncome = grossMargin - totalOpEx;       // Lucro Líquido Contábil (Realizado)
-  
+
   // Safety Margin (Caixa Disponível) = Receita Realizada - Despesas Pagas
   // Note: provisionedFlow tem tudo, então não usamos ele aqui para o Caixa Imediato
-  const safetyMargin = netIncome; 
+  const safetyMargin = netIncome;
 
   // Passivo Pendente (Contas a Pagar Futuras)
   const pendingPayables = provisionedFlow - (totalCOGS + totalOpEx);
@@ -100,10 +112,10 @@ export const calculateDistribution = (transactions: FinancialData[]): Distributi
 
   Object.values(Partner).forEach(p => {
     if (p !== Partner.NONE) {
-       // Fee calculada puramente sobre o volume de vendas REALIZADO
-       const fee = partnerPerformance[p].revenue * RATES.ORIGINATION;
-       originationFees[p] = fee;
-       totalOriginationFee += fee;
+      // Fee calculada puramente sobre o volume de vendas REALIZADO
+      const fee = partnerPerformance[p].revenue * RATES.ORIGINATION;
+      originationFees[p] = fee;
+      totalOriginationFee += fee;
     }
   });
 
@@ -113,7 +125,7 @@ export const calculateDistribution = (transactions: FinancialData[]): Distributi
 
   // 7. Reserva
   const companyReserve = distributableBase * RATES.RESERVE;
-  
+
   // 8. Saldo Final para Dividendo
   const finalDistributable = Math.max(0, distributableBase - companyReserve);
 
@@ -132,9 +144,9 @@ export const calculateDistribution = (transactions: FinancialData[]): Distributi
     provisionedFlow,
     pendingPayables,
     grossTotalBookkeeping,
-    
+
     originationFee: totalOriginationFee,
-    
+
     // Novo Objeto de Retorno Detalhado
     originationFees: {
       evandro: originationFees[Partner.EVANDRO],
@@ -144,7 +156,7 @@ export const calculateDistribution = (transactions: FinancialData[]): Distributi
 
     companyReserve,
     distributableBalance: finalDistributable,
-    
+
     partnerShares: {
       evandro: shareEvandro,
       juliaSamuel: shareJulia,
