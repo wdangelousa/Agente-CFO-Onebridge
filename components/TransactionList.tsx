@@ -1,7 +1,7 @@
 
 import React, { useMemo } from 'react';
 import { FinancialData, TransactionType, TransactionStatus, ExpenseCategory } from '../types';
-import { Trash2, ArrowUpCircle, FileText, CheckCircle2, Clock, CalendarDays, History, Pencil, Layers, Briefcase, Link as LinkIcon, ChevronRight, Wallet, AlertCircle, Paperclip, Files } from 'lucide-react';
+import { Trash2, FileText, CheckCircle2, Clock, Pencil, Layers, Briefcase, Paperclip, Files } from 'lucide-react';
 
 interface Props {
   transactions: FinancialData[];
@@ -17,50 +17,58 @@ export const TransactionList: React.FC<Props> = ({ transactions, onRemove, onGen
 
   // Helper para renderizar link de anexo
   const renderAttachmentLink = (t: FinancialData) => {
-    // Normalizar lista de anexos (suporte legado + novo)
     const attachments = t.attachments || (t.attachmentUrl ? [{ url: t.attachmentUrl, name: 'Anexo' }] : []);
-    
+
     if (attachments.length === 0) return null;
 
     if (attachments.length === 1) {
-       return (
-         <a href={attachments[0].url} target="_blank" rel="noopener noreferrer" className="p-1.5 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded transition-colors" title="Ver Anexo">
-           <Paperclip className="w-4 h-4" />
-         </a>
-       );
+      return (
+        <a
+          href={attachments[0].url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50/50 rounded-lg transition-all duration-150"
+          title="Ver Anexo"
+        >
+          <Paperclip className="w-4 h-4" />
+        </a>
+      );
     }
 
     return (
       <div className="relative group/attach">
-        <button className="p-1.5 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded transition-colors flex items-center gap-1">
+        <button className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50/50 rounded-lg transition-all duration-150 flex items-center gap-1.5">
           <Files className="w-4 h-4" />
-          <span className="text-[9px] font-bold">{attachments.length}</span>
+          <span className="text-[10px] font-semibold text-slate-500">{attachments.length}</span>
         </button>
-        {/* Dropdown on Hover */}
-        <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-slate-200 rounded-lg shadow-xl z-50 hidden group-hover/attach:block animate-in fade-in zoom-in-95 duration-100">
-           <div className="p-2 space-y-1">
-             <p className="text-[9px] font-bold text-slate-400 uppercase px-2 mb-1">Arquivos</p>
-             {attachments.map((att, idx) => (
-                <a key={idx} href={att.url} target="_blank" rel="noopener noreferrer" className="block px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-50 hover:text-blue-600 rounded truncate">
-                   {idx + 1}. {att.name || 'Documento'}
-                </a>
-             ))}
-           </div>
+        <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-slate-200 rounded-xl shadow-xl z-50 hidden group-hover/attach:block animate-in fade-in zoom-in-95 duration-150">
+          <div className="p-3 space-y-1">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 mb-2">Arquivos Anexados</p>
+            {attachments.map((att, idx) => (
+              <a
+                key={idx}
+                href={att.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 hover:text-blue-600 rounded-lg transition-colors truncate font-medium"
+              >
+                {idx + 1}. {att.name || 'Documento'}
+              </a>
+            ))}
+          </div>
         </div>
       </div>
     );
   };
 
-  // 1. Separar Receitas e Despesas
-  const revenues = useMemo(() => 
+  const revenues = useMemo(() =>
     transactions.filter(t => t.type === TransactionType.REVENUE).sort((a, b) => new Date(b.date || '').getTime() - new Date(a.date || '').getTime()),
-  [transactions]);
+    [transactions]);
 
-  const expenses = useMemo(() => 
+  const expenses = useMemo(() =>
     transactions.filter(t => t.type === TransactionType.EXPENSE),
-  [transactions]);
+    [transactions]);
 
-  // 2. Agrupar COGS por Receita Vinculada (QA Fix: Sorted by date descending)
   const expensesByRevenueId = useMemo(() => {
     const map: Record<string, FinancialData[]> = {};
     expenses.forEach(e => {
@@ -69,14 +77,12 @@ export const TransactionList: React.FC<Props> = ({ transactions, onRemove, onGen
         map[e.linkedTransactionId].push(e);
       }
     });
-    // Sort linked expenses within their group
     Object.keys(map).forEach(key => {
-        map[key].sort((a, b) => new Date(b.date || '').getTime() - new Date(a.date || '').getTime());
+      map[key].sort((a, b) => new Date(b.date || '').getTime() - new Date(a.date || '').getTime());
     });
     return map;
   }, [expenses]);
 
-  // 3. Identificar Despesas "Orfãs" ou OpEx (QA Fix: Sorted by date descending)
   const unlinkedExpenses = useMemo(() => {
     const revenueIdsInView = new Set(revenues.map(r => r.id));
     return expenses
@@ -86,34 +92,45 @@ export const TransactionList: React.FC<Props> = ({ transactions, onRemove, onGen
 
   if (transactions.length === 0) {
     return (
-      <div className="text-center py-12 text-slate-400 bg-white rounded-xl border border-dashed border-slate-300 shadow-sm">
-        <div className="bg-slate-50 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
-           <CalendarDays className="w-6 h-6 text-slate-300" />
+      <div className="text-center py-20 text-slate-400 bg-white rounded-2xl border border-slate-200/80 shadow-sm">
+        <div className="bg-slate-50/80 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <Layers className="w-7 h-7 text-slate-300" />
         </div>
-        <p className="text-sm font-medium">Nenhum lançamento neste período.</p>
-        <p className="text-xs text-slate-300 mt-1 uppercase tracking-widest font-bold">Inicie um novo Deal</p>
+        <p className="text-sm font-semibold text-slate-600 mb-1">Nenhum lançamento neste período</p>
+        <p className="text-xs text-slate-400">Inicie um novo Deal para começar</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-8">
-      
-      {/* SEÇÃO 1: PORTFÓLIO DE DEALS (RECEITAS + CUSTOS VINCULADOS) */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
-          <h3 className="font-bold text-slate-700 text-sm uppercase tracking-wider flex items-center gap-2">
-             <Layers className="w-4 h-4 text-emerald-600" />
-             Portfólio de Deals & Margens
-          </h3>
-          <span className="text-[10px] font-black uppercase text-slate-400">Unit Economics</span>
+    <div className="space-y-6">
+
+      {/* SEÇÃO 1: PORTFÓLIO DE DEALS */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
+        {/* Header */}
+        <div className="px-6 py-4 bg-gradient-to-b from-slate-50 to-white border-b border-slate-200/80">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-emerald-50 rounded-xl">
+                <Layers className="w-4.5 h-4.5 text-emerald-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm uppercase tracking-wide">Portfólio de Deals</h3>
+                <p className="text-[10px] text-slate-500 mt-0.5 font-medium">Receitas e Margens de Contribuição</p>
+              </div>
+            </div>
+            <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider bg-slate-100 px-3 py-1.5 rounded-lg">
+              Unit Economics
+            </span>
+          </div>
         </div>
 
-        <div className="divide-y divide-slate-100">
+        {/* Content */}
+        <div className="divide-y divide-slate-100/80">
           {revenues.length === 0 ? (
-            <div className="p-8 text-center text-slate-400 text-sm">Nenhuma receita registrada neste período.</div>
+            <div className="p-12 text-center text-slate-400 text-sm font-medium">Nenhuma receita registrada neste período.</div>
           ) : (
-            revenues.map(revenue => {
+            revenues.map((revenue, idx) => {
               const linkedCosts = expensesByRevenueId[revenue.id!] || [];
               const totalCosts = linkedCosts.reduce((acc, curr) => acc + (curr.amount || 0), 0);
               const grossRevenue = revenue.grossRevenue || 0;
@@ -122,113 +139,162 @@ export const TransactionList: React.FC<Props> = ({ transactions, onRemove, onGen
               const isIssued = !!revenue.issuedAt;
 
               return (
-                <div key={revenue.id} className="group transition-all hover:bg-slate-50/50">
-                  {/* Revenue Header Row */}
-                  <div className="p-4 pl-2 lg:pl-4 flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-0">
-                    
-                    {/* Col 1: Status Line & Basic Info */}
+                <div
+                  key={revenue.id}
+                  className={`group transition-all duration-150 ${idx % 2 === 0 ? 'bg-white hover:bg-slate-50/40' : 'bg-slate-50/30 hover:bg-slate-50/60'}`}
+                >
+                  {/* Revenue Row */}
+                  <div className="p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-6">
+
+                    {/* Left: Info */}
                     <div className="flex-1 min-w-0">
-                       <div className="flex items-center gap-3 mb-1">
-                          <div className={`w-1 h-8 rounded-full ${revenue.status === TransactionStatus.PAID ? 'bg-emerald-500' : 'bg-amber-400'}`}></div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                               <h4 className="font-bold text-slate-900 text-sm truncate">{revenue.description}</h4>
-                               {revenue.clientType === 'Pessoa Jurídica' && <Building2Icon className="w-3 h-3 text-slate-400" />}
-                            </div>
-                            <p className="text-xs text-slate-500 flex items-center gap-2">
-                               {revenue.date?.split('T')[0].split('-').reverse().join('/')}
-                               <span className="text-slate-300">•</span>
-                               {revenue.serviceType || 'Serviço Geral'}
-                               {isIssued && <span className="text-[9px] bg-emerald-100 text-emerald-700 px-1.5 rounded font-bold">FATURADO</span>}
-                            </p>
+                      <div className="flex items-start gap-3 sm:gap-4">
+                        {/* Status Indicator */}
+                        <div className={`w-1.5 h-12 sm:h-14 rounded-full flex-shrink-0 ${revenue.status === TransactionStatus.PAID ? 'bg-gradient-to-b from-emerald-500 to-emerald-600' : 'bg-gradient-to-b from-amber-400 to-amber-500'}`}></div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2 mb-1">
+                            <h4 className="font-bold text-slate-900 text-sm sm:text-base truncate leading-tight mr-1">{revenue.description}</h4>
+                            {isIssued && (
+                              <span className="text-[9px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-md font-bold border border-emerald-200/50 whitespace-nowrap">
+                                FATURADO
+                              </span>
+                            )}
                           </div>
-                       </div>
+                          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-slate-500">
+                            <span className="font-medium tabular-nums whitespace-nowrap">
+                              {revenue.date?.split('T')[0].split('-').reverse().join('/')}
+                            </span>
+                            <span className="text-slate-300 hidden sm:inline">•</span>
+                            <span className="text-slate-600 font-medium truncate max-w-full sm:max-w-[200px]">{revenue.serviceType || 'Serviço Geral'}</span>
+                          </div>
+                        </div>
+                      </div>
                     </div>
 
-                    {/* Col 2: Financial Summary of the Deal */}
-                    <div className="flex items-center justify-between lg:justify-end gap-6 lg:w-1/2 mt-2 lg:mt-0 pl-4 lg:pl-0 border-l lg:border-l-0 border-slate-100">
-                       
-                       {/* Costs Summary */}
-                       <div className="text-right">
-                          <p className="text-[9px] font-black uppercase text-slate-400 mb-0.5">Custos Diretos</p>
-                          <p className={`text-xs font-bold font-mono ${totalCosts > 0 ? 'text-red-600' : 'text-slate-300'}`}>
-                             {totalCosts > 0 ? '-' : ''}{formatCurrency(totalCosts)}
-                          </p>
-                       </div>
+                    {/* Right: Financial Data */}
+                    <div className="flex flex-wrap items-center justify-between sm:justify-end gap-x-6 gap-y-3 pl-4 border-l border-slate-200/60 lg:border-l-0 lg:pl-0 mt-2 lg:mt-0">
 
-                       {/* Gross Revenue */}
-                       <div className="text-right">
-                          <p className="text-[9px] font-black uppercase text-slate-400 mb-0.5">Receita Bruta</p>
-                          <p className="text-sm font-black font-mono text-emerald-600">
-                             +{formatCurrency(grossRevenue)}
-                          </p>
-                       </div>
+                      {/* Custos */}
+                      <div className="text-right">
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase text-slate-400 mb-1 tracking-wide">Custos</p>
+                        <p className={`text-sm font-bold font-mono tabular-nums ${totalCosts > 0 ? 'text-red-600' : 'text-slate-300'}`}>
+                          {totalCosts > 0 ? '-' : ''}{formatCurrency(totalCosts)}
+                        </p>
+                      </div>
 
-                       {/* Net Margin (Highlight) */}
-                       <div className="text-right bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 min-w-[100px]">
-                          <p className="text-[9px] font-black uppercase text-slate-500 mb-0.5">Margem Deal</p>
-                          <div className="flex flex-col items-end leading-none">
-                             <span className={`font-black font-mono text-sm ${contributionMargin < 0 ? 'text-red-600' : 'text-slate-800'}`}>
-                               {formatCurrency(contributionMargin)}
-                             </span>
-                             <span className={`text-[9px] font-bold ${marginPercent < 30 ? 'text-red-500' : 'text-emerald-500'}`}>
-                                {marginPercent.toFixed(0)}%
-                             </span>
-                          </div>
-                       </div>
+                      {/* Receita */}
+                      <div className="text-right">
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase text-slate-400 mb-1 tracking-wide">Receita</p>
+                        <p className="text-sm sm:text-base font-bold font-mono tabular-nums text-emerald-600">
+                          +{formatCurrency(grossRevenue)}
+                        </p>
+                      </div>
 
-                       {/* Actions */}
-                       <div className="flex gap-1 ml-2 items-center">
-                          {renderAttachmentLink(revenue)}
-                          <button onClick={() => onEdit(revenue)} className="p-1.5 text-slate-300 hover:text-amber-500 hover:bg-amber-50 rounded transition-colors"><Pencil className="w-4 h-4" /></button>
-                          {revenue.type === TransactionType.REVENUE && (
-                              <button onClick={() => onGenerateInvoice(revenue)} className={`p-1.5 rounded transition-colors ${isIssued ? 'text-emerald-600 hover:bg-emerald-50' : 'text-slate-300 hover:text-emerald-500'}`}><FileText className="w-4 h-4" /></button>
-                          )}
-                          <button onClick={() => revenue.id && onRemove(revenue.id)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"><Trash2 className="w-4 h-4" /></button>
-                       </div>
+                      {/* Margem (Destaque) */}
+                      <div className="text-right bg-gradient-to-br from-slate-50 to-slate-100/50 px-3 sm:px-5 py-2 sm:py-3 rounded-xl border border-slate-200/80 shadow-sm min-w-[100px] sm:min-w-[120px]">
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase text-slate-500 mb-1 tracking-wide">Margem</p>
+                        <div className="flex flex-col items-end">
+                          <span className={`font-bold font-mono text-sm sm:text-base tabular-nums ${contributionMargin < 0 ? 'text-red-600' : 'text-slate-900'}`}>
+                            {formatCurrency(contributionMargin)}
+                          </span>
+                          <span className={`text-[9px] font-bold mt-0.5 ${marginPercent < 30 ? 'text-red-500' : 'text-emerald-600'}`}>
+                            {marginPercent.toFixed(0)}%
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex gap-1 items-center ml-auto sm:ml-2">
+                        {renderAttachmentLink(revenue)}
+                        <button
+                          onClick={() => onEdit(revenue)}
+                          className="p-1.5 sm:p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50/50 rounded-lg transition-all duration-150"
+                          title="Editar"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        {revenue.type === TransactionType.REVENUE && (
+                          <button
+                            onClick={() => onGenerateInvoice(revenue)}
+                            className={`p-1.5 sm:p-2 rounded-lg transition-all duration-150 ${isIssued ? 'text-emerald-600 hover:bg-emerald-50/50' : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50/50'}`}
+                            title="Gerar Invoice"
+                          >
+                            <FileText className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => revenue.id && onRemove(revenue.id)}
+                          className="p-1.5 sm:p-2 text-slate-400 hover:text-red-600 hover:bg-red-50/50 rounded-lg transition-all duration-150"
+                          title="Remover"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   </div>
 
-                  {/* SUB-SECTION: Linked Expenses List */}
+                  {/* Custos Vinculados */}
                   {linkedCosts.length > 0 && (
-                    <div className="bg-slate-50/80 border-t border-slate-100 px-4 py-2 lg:pl-12 text-xs">
-                       <div className="flex items-center gap-2 mb-2">
-                          <div className="w-3 h-3 border-l-2 border-b-2 border-slate-300 rounded-bl-md"></div>
-                          <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Detalhamento de Custos Vinculados (Provisionados)</span>
-                       </div>
-                       <div className="space-y-1.5 pl-5">
-                          {linkedCosts.map(cost => (
-                             <div key={cost.id} className="flex items-center justify-between group/cost hover:bg-white p-1.5 rounded border border-transparent hover:border-slate-200 transition-all">
-                                <div className="flex items-center gap-2">
-                                   <span className="text-[9px] font-mono text-slate-400">{cost.date?.split('T')[0].split('-').reverse().join('/').slice(0,5)}</span>
-                                   {cost.status === TransactionStatus.PAID ? (
-                                      <span title="Pago"><CheckCircle2 className="w-3 h-3 text-emerald-500" /></span>
-                                   ) : (
-                                      <span title="Provisionado"><Clock className="w-3 h-3 text-amber-500" /></span>
-                                   )}
-                                   <span className="text-slate-600 font-medium">{cost.description}</span>
-                                   
-                                   {/* Cost Attachment (Inline Icon or Count) */}
-                                   {(cost.attachments?.length || (cost.attachmentUrl ? 1 : 0)) > 0 && (
-                                      <a href={cost.attachments?.[0]?.url || cost.attachmentUrl} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700 flex items-center gap-0.5" title="Ver Comprovante">
-                                         <Paperclip className="w-3 h-3" />
-                                         {(cost.attachments?.length || 0) > 1 && <span className="text-[9px] font-bold">({cost.attachments?.length})</span>}
-                                      </a>
-                                   )}
+                    <div className="bg-gradient-to-b from-slate-50/40 to-slate-50/60 border-t border-slate-200/60 px-6 py-4 lg:pl-16">
+                      <div className="flex items-center gap-2.5 mb-3.5">
+                        <div className="w-4 h-4 border-l-2 border-b-2 border-slate-300 rounded-bl-md"></div>
+                        <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Custos Vinculados</span>
+                      </div>
+                      <div className="space-y-2 pl-6">
+                        {linkedCosts.map((cost, costIdx) => (
+                          <div
+                            key={cost.id}
+                            className={`flex items-center justify-between group/cost px-3 py-2.5 rounded-lg border transition-all duration-150 ${costIdx % 2 === 0 ? 'bg-white/80 border-transparent hover:border-slate-200/80' : 'bg-slate-50/50 border-transparent hover:border-slate-200/80'} hover:shadow-sm`}
+                          >
+                            <div className="flex items-center gap-3 flex-1 min-w-0">
+                              <span className="text-[10px] font-mono text-slate-400 tabular-nums flex-shrink-0 w-10">
+                                {cost.date?.split('T')[0].split('-').reverse().join('/').slice(0, 5)}
+                              </span>
+                              {cost.status === TransactionStatus.PAID ? (
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" title="Pago" />
+                              ) : (
+                                <Clock className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" title="Provisionado" />
+                              )}
+                              <span className="text-sm text-slate-700 font-medium truncate">{cost.description}</span>
 
-                                   {cost.isReimbursable && <span className="text-[9px] bg-amber-100 text-amber-700 px-1 rounded flex items-center gap-1"><Wallet className="w-2.5 h-2.5" /> Reembolso: {cost.reimbursementBeneficiary?.split(' ')[0]}</span>}
-                                   {cost.originator && cost.originator !== 'Nenhum (Orgânico)' && <span className="text-[9px] text-slate-400">({cost.originator.split(' ')[0]})</span>}
-                                </div>
-                                <div className="flex items-center gap-3">
-                                   <span className="font-mono font-bold text-red-600">-{formatCurrency(cost.amount || 0)}</span>
-                                   <div className="opacity-0 group-hover/cost:opacity-100 flex gap-1">
-                                      <button onClick={() => onEdit(cost)} className="text-slate-400 hover:text-amber-500"><Pencil className="w-3 h-3" /></button>
-                                      <button onClick={() => cost.id && onRemove(cost.id)} className="text-slate-400 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
-                                   </div>
-                                </div>
-                             </div>
-                          ))}
-                       </div>
+                              {(cost.attachments?.length || (cost.attachmentUrl ? 1 : 0)) > 0 && (
+                                <a
+                                  href={cost.attachments?.[0]?.url || cost.attachmentUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-500 hover:text-blue-700 flex items-center gap-1 flex-shrink-0 transition-colors"
+                                  title="Ver Comprovante"
+                                >
+                                  <Paperclip className="w-3.5 h-3.5" />
+                                  {(cost.attachments?.length || 0) > 1 && (
+                                    <span className="text-[9px] font-bold">({cost.attachments?.length})</span>
+                                  )}
+                                </a>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-4 flex-shrink-0">
+                              <span className="font-mono font-bold text-sm text-red-600 tabular-nums">
+                                -{formatCurrency(cost.amount || 0)}
+                              </span>
+                              <div className="opacity-0 group-hover/cost:opacity-100 flex gap-1 transition-opacity">
+                                <button
+                                  onClick={() => onEdit(cost)}
+                                  className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50/50 rounded transition-all"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => cost.id && onRemove(cost.id)}
+                                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50/50 rounded transition-all"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -238,75 +304,112 @@ export const TransactionList: React.FC<Props> = ({ transactions, onRemove, onGen
         </div>
       </div>
 
-      {/* SEÇÃO 2: DESPESAS OPERACIONAIS (OPEX) E AVULSAS */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
-          <h3 className="font-bold text-slate-700 text-sm uppercase tracking-wider flex items-center gap-2">
-             <Briefcase className="w-4 h-4 text-purple-600" />
-             Despesas Operacionais & Avulsas
-          </h3>
-          <span className="text-[10px] font-black uppercase text-slate-400 bg-slate-200 px-2 py-0.5 rounded-full">
-            {unlinkedExpenses.length} Itens
-          </span>
+      {/* SEÇÃO 2: DESPESAS OPERACIONAIS */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
+        {/* Header */}
+        <div className="px-6 py-4 bg-gradient-to-b from-slate-50 to-white border-b border-slate-200/80">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-purple-50 rounded-xl">
+                <Briefcase className="w-4.5 h-4.5 text-purple-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm uppercase tracking-wide">Despesas Operacionais</h3>
+                <p className="text-[10px] text-slate-500 mt-0.5 font-medium">OpEx e Despesas Desvinculadas</p>
+              </div>
+            </div>
+            <span className="text-[10px] font-bold uppercase text-slate-400 bg-slate-100 px-3 py-1.5 rounded-lg tracking-wider">
+              {unlinkedExpenses.length} {unlinkedExpenses.length === 1 ? 'Item' : 'Itens'}
+            </span>
+          </div>
         </div>
 
-        <div className="divide-y divide-slate-100 max-h-[400px] overflow-y-auto">
-           {unlinkedExpenses.length === 0 ? (
-              <div className="p-8 text-center text-slate-400 text-sm">Nenhuma despesa operacional ou desvinculada.</div>
-           ) : (
-              unlinkedExpenses.map(expense => (
-                 <div key={expense.id} className="p-3 pl-4 flex items-center justify-between hover:bg-slate-50 transition-colors group">
-                    <div className="flex items-center gap-3">
-                       <div className={`p-1.5 rounded-lg ${expense.category === ExpenseCategory.OPEX ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'}`}>
-                          {expense.category === ExpenseCategory.OPEX ? <Briefcase className="w-4 h-4" /> : <Layers className="w-4 h-4" />}
-                       </div>
-                       <div>
-                          <p className="text-sm font-bold text-slate-700 flex items-center gap-2">
-                             {expense.description}
-                             {/* Expense Attachment (Inline Icon or Count) */}
-                             {(expense.attachments?.length || (expense.attachmentUrl ? 1 : 0)) > 0 && (
-                                <a href={expense.attachments?.[0]?.url || expense.attachmentUrl} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700 flex items-center gap-0.5" title="Ver Comprovante">
-                                   <Paperclip className="w-3.5 h-3.5" />
-                                   {(expense.attachments?.length || 0) > 1 && <span className="text-[9px] font-bold">({expense.attachments?.length})</span>}
-                                </a>
-                             )}
-                          </p>
-                          <div className="flex items-center gap-2 text-xs text-slate-400">
-                             <span>{expense.date?.split('T')[0].split('-').reverse().join('/')}</span>
-                             {expense.serviceType && (
-                                <span className="text-slate-500 font-medium italic border-l border-slate-200 pl-2">Ref: {expense.serviceType}</span>
-                             )}
-                          </div>
-                       </div>
-                    </div>
+        {/* Content */}
+        <div className="divide-y divide-slate-100/80 max-h-[500px] overflow-y-auto">
+          {unlinkedExpenses.length === 0 ? (
+            <div className="p-12 text-center text-slate-400 text-sm font-medium">Nenhuma despesa operacional registrada.</div>
+          ) : unlinkedExpenses.map((expense, idx) => (
+            <div
+              key={expense.id}
+              className={`p-4 sm:px-6 sm:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all duration-150 group ${idx % 2 === 0 ? 'bg-white hover:bg-slate-50/40' : 'bg-slate-50/30 hover:bg-slate-50/60'}`}
+            >
+              <div className="flex items-start sm:items-center gap-3 sm:gap-4 flex-1 min-w-0">
+                {/* Icon */}
+                <div className={`p-2 sm:p-2.5 rounded-xl flex-shrink-0 ${expense.category === ExpenseCategory.OPEX ? 'bg-purple-50' : 'bg-blue-50'}`}>
+                  {expense.category === ExpenseCategory.OPEX ? (
+                    <Briefcase className="w-4 h-4 text-purple-600" />
+                  ) : (
+                    <Layers className="w-4 h-4 text-blue-600" />
+                  )}
+                </div>
 
-                    <div className="flex items-center gap-4">
-                       {expense.status === TransactionStatus.PENDING && (
-                          <span className="text-[10px] font-bold uppercase text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-100 flex items-center gap-1">
-                             <Clock className="w-3 h-3" /> Pendente
-                          </span>
-                       )}
-                       <span className="font-mono font-bold text-red-600">-{formatCurrency(expense.amount || 0)}</span>
-                       <div className="flex gap-1 w-16 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => onEdit(expense)} className="p-1.5 text-slate-300 hover:text-amber-500 hover:bg-amber-50 rounded transition-colors"><Pencil className="w-4 h-4" /></button>
-                          <button onClick={() => expense.id && onRemove(expense.id)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"><Trash2 className="w-4 h-4" /></button>
-                       </div>
-                    </div>
-                 </div>
-              ))
-           )}
+                {/* Info */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2 mb-1">
+                    <p className="text-sm font-bold text-slate-800 truncate leading-tight mr-1">
+                      {expense.description}
+                    </p>
+                    {(expense.attachments?.length || (expense.attachmentUrl ? 1 : 0)) > 0 && (
+                      <a
+                        href={expense.attachments?.[0]?.url || expense.attachmentUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-500 hover:text-blue-700 flex items-center gap-1 flex-shrink-0 transition-colors"
+                        title="Ver Comprovante"
+                      >
+                        <Paperclip className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                        {(expense.attachments?.length || 0) > 1 && (
+                          <span className="text-[9px] font-bold">({expense.attachments?.length})</span>
+                        )}
+                      </a>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                    <span className="font-medium tabular-nums whitespace-nowrap">
+                      {expense.date?.split('T')[0].split('-').reverse().join('/')}
+                    </span>
+                    {expense.serviceType && (
+                      <>
+                        <span className="text-slate-300 hidden sm:inline">•</span>
+                        <span className="text-slate-600 font-medium italic truncate max-w-full sm:max-w-[200px]">Ref: {expense.serviceType}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Right: Value & Actions */}
+              <div className="flex items-center justify-end gap-3 sm:gap-5 flex-shrink-0 pl-11 sm:pl-0">
+                {expense.status === TransactionStatus.PENDING && (
+                  <span className="text-[9px] sm:text-[10px] font-bold uppercase text-amber-700 bg-amber-50 px-2 sm:px-3 py-1 rounded-lg border border-amber-200/50 flex items-center gap-1">
+                    <Clock className="w-3 h-3" /> <span className="hidden sm:inline">Pendente</span>
+                  </span>
+                )}
+                <span className="font-mono font-bold text-sm text-red-600 min-w-[80px] sm:min-w-[100px] text-right tabular-nums">
+                  -{formatCurrency(expense.amount || 0)}
+                </span>
+                <div className="flex gap-1 w-auto sm:w-20 justify-end transition-opacity">
+                  <button
+                    onClick={() => onEdit(expense)}
+                    className="p-1.5 sm:p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50/50 rounded-lg transition-all duration-150"
+                    title="Editar"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => expense.id && onRemove(expense.id)}
+                    className="p-1.5 sm:p-2 text-slate-400 hover:text-red-600 hover:bg-red-50/50 rounded-lg transition-all duration-150"
+                    title="Remover"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))
+          }
         </div>
       </div>
     </div>
   );
 };
-
-// Ícone Auxiliar
-const Building2Icon = ({ className }: { className?: string }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z" />
-    <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" />
-    <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2" />
-    <path d="M10 6h4" /><path d="M10 10h4" /><path d="M10 14h4" /><path d="M10 18h4" />
-  </svg>
-);
