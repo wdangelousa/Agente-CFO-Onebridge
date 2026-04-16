@@ -10,7 +10,7 @@ import { CfoAssistant } from './components/CfoAssistant';
 import { InvoiceModal } from './components/InvoiceModal';
 import { ReportModal } from './components/ReportModal';
 import { BatchProcessModal } from './components/BatchProcessModal';
-import { FinancialData, DistributionResult, Partner, TransactionType, PaymentMethod, ClientType, TransactionStatus } from './types';
+import { FinancialData, DistributionResult, Partner, TransactionType, PaymentMethod, ClientType, TransactionStatus, ExpenseCategory } from './types';
 import { calculateDistribution } from './utils/calculations';
 import { Logo } from './components/Logo';
 import { Eraser, FilePlus2, FileBarChart, Calendar, ChevronLeft, ChevronRight, History, Zap, LayoutDashboard, PenLine, Bot, Menu, LogOut, Loader2, Activity, PieChart } from 'lucide-react';
@@ -39,6 +39,67 @@ const INITIAL_FORM_DATA: FinancialData = {
 
 type MobileTab = 'form' | 'dashboard' | 'cfo';
 type DashboardView = 'waterfall' | 'pnl';
+type SaveFeedback = { kind: 'success' | 'error'; message: string } | null;
+
+const INITIAL_NOW = new Date();
+const INITIAL_REF_MONTH = INITIAL_NOW.toISOString().slice(0, 7);
+const INITIAL_FORTNIGHT: 1 | 2 = INITIAL_NOW.getDate() <= 15 ? 1 : 2;
+
+const getPeriodAnchorDate = (refMonth: string, fortnight: 1 | 2) => {
+  const [year, month] = refMonth.split('-').map(Number);
+  const day = fortnight === 1 ? 1 : 16;
+  return new Date(year, month - 1, day, 12, 0, 0).toISOString();
+};
+
+const createFormState = (
+  refMonth: string,
+  fortnight: 1 | 2,
+  type: TransactionType = TransactionType.REVENUE
+): FinancialData => {
+  const baseState: FinancialData = {
+    ...INITIAL_FORM_DATA,
+    type,
+    currency: 'USD',
+    date: getPeriodAnchorDate(refMonth, fortnight)
+  };
+
+  if (type === TransactionType.EXPENSE) {
+    return {
+      ...baseState,
+      status: TransactionStatus.PENDING,
+      category: ExpenseCategory.COGS,
+      grossRevenue: 0,
+      serviceType: '',
+      originator: Partner.NONE
+    };
+  }
+
+  return {
+    ...baseState,
+    status: TransactionStatus.PAID,
+    category: undefined,
+    linkedTransactionId: undefined,
+    isReimbursable: false,
+    reimbursementBeneficiary: undefined
+  };
+};
+
+const isTransactionInCurrentView = (
+  transaction: Pick<FinancialData, 'date'>,
+  refMonth: string,
+  fortnight: 1 | 2
+) => {
+  if (!transaction.date) return false;
+  const txDate = new Date(transaction.date);
+  const txMonth = transaction.date.slice(0, 7);
+  const txFortnight = txDate.getDate() <= 15 ? 1 : 2;
+  return txMonth === refMonth && txFortnight === fortnight;
+};
+
+const formatTransactionDate = (date?: string) => {
+  if (!date) return '';
+  return new Date(date).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+};
 
 export default function App() {
   // Auth State
@@ -46,12 +107,13 @@ export default function App() {
   const [loadingAuth, setLoadingAuth] = useState(true);
 
   // App Data State
-  const [formData, setFormData] = useState<FinancialData>(INITIAL_FORM_DATA);
+  const [refMonth, setRefMonth] = useState(INITIAL_REF_MONTH);
+  const [fortnight, setFortnight] = useState<1 | 2>(INITIAL_FORTNIGHT);
+  const [formData, setFormData] = useState<FinancialData>(() => createFormState(INITIAL_REF_MONTH, INITIAL_FORTNIGHT));
   const [allTransactions, setAllTransactions] = useState<FinancialData[]>([]);
   const [loadingData, setLoadingData] = useState(false);
-
-  const [refMonth, setRefMonth] = useState(new Date().toISOString().slice(0, 7));
-  const [fortnight, setFortnight] = useState<1 | 2>(new Date().getDate() <= 15 ? 1 : 2);
+  const [saveFeedback, setSaveFeedback] = useState<SaveFeedback>(null);
+  const [formResetToken, setFormResetToken] = useState(0);
 
   // Mobile Navigation State
   const [activeTab, setActiveTab] = useState<MobileTab>('form');
@@ -107,6 +169,19 @@ export default function App() {
     }
   }, [session]);
 
+  useEffect(() => {
+    setFormData(prev => {
+      const isEditing = !!prev.id && prev.id !== 'manual';
+      const hasDraftContent = !!prev.description.trim() || (prev.grossRevenue || 0) > 0 || (prev.amount || 0) > 0 || (prev.attachments?.length || 0) > 0;
+
+      if (isEditing || hasDraftContent) {
+        return prev;
+      }
+
+      return { ...prev, date: getPeriodAnchorDate(refMonth, fortnight) };
+    });
+  }, [refMonth, fortnight]);
+
   const transactions = useMemo(() => {
     return allTransactions.filter(t => {
       if (!t.date) return false;
@@ -129,45 +204,83 @@ export default function App() {
 
   const handleAddTransaction = async (openInvoice: boolean = false) => {
     try {
+      setSaveFeedback(null);
+
       if (formData.id && formData.id !== 'manual') {
         const updated = await TransactionService.update(formData);
         setAllTransactions(prev => prev.map(t => t.id === updated.id ? updated : t));
+        setSaveFeedback({
+          kind: 'success',
+          message: updated.type === TransactionType.EXPENSE
+            ? 'Despesa atualizada com sucesso.'
+            : 'Receita atualizada com sucesso.'
+        });
       } else {
-        const [year, month] = refMonth.split('-').map(Number);
-        const day = fortnight === 1 ? 1 : 16;
-        const date = new Date(year, month - 1, day, 12, 0, 0);
-
         const newTransactionPayload = {
           ...formData,
-          date: date.toISOString()
+          date: formData.date || getPeriodAnchorDate(refMonth, fortnight)
         };
 
         const created = await TransactionService.create(newTransactionPayload);
         setAllTransactions(prev => [...prev, created]);
+
+        const isVisibleNow = isTransactionInCurrentView(created, refMonth, fortnight);
+
+        if (created.type === TransactionType.EXPENSE) {
+          const locationMessage = created.linkedTransactionId && isVisibleNow
+            ? 'Ela aparece em "Custos Vinculados" no deal correspondente.'
+            : isVisibleNow
+              ? 'Ela já está visível na lista do período atual.'
+              : `Ela foi salva com data ${formatTransactionDate(created.date)} e pode estar fora do filtro atual.`;
+
+          setSaveFeedback({
+            kind: 'success',
+            message: `Despesa salva com sucesso. ${locationMessage}`
+          });
+        } else {
+          setSaveFeedback({
+            kind: 'success',
+            message: openInvoice
+              ? 'Receita salva e pronta para emissão de invoice.'
+              : 'Receita adicionada ao lote atual com sucesso.'
+          });
+        }
 
         if (openInvoice && formData.type === TransactionType.REVENUE) {
           setSelectedInvoiceTransaction(created);
         }
       }
 
-      setFormData({ ...INITIAL_FORM_DATA, type: formData.type, currency: 'USD' });
+      setFormData(createFormState(refMonth, fortnight, formData.type));
+      setFormResetToken(prev => prev + 1);
       if (window.innerWidth < 1024) {
         setActiveTab('dashboard');
       }
     } catch (error) {
+      const errorMessage = error instanceof Error && error.message
+        ? error.message
+        : 'Tente novamente.';
+
+      setSaveFeedback({
+        kind: 'error',
+        message: `Erro ao salvar transação. ${errorMessage}`
+      });
       alert("Erro ao salvar transação. Tente novamente.");
       console.error(error);
     }
   };
 
   const handleEditTransaction = (transaction: FinancialData) => {
+    setSaveFeedback(null);
     setFormData(transaction);
     setActiveTab('form');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleCancelEdit = () => {
-    setFormData({ ...INITIAL_FORM_DATA, type: formData.type, currency: 'USD' });
+    setSaveFeedback(null);
+    setFormData(createFormState(refMonth, fortnight, formData.type));
+    setFormResetToken(prev => prev + 1);
   };
 
   const handleRemoveTransaction = async (id: string) => {
@@ -191,7 +304,9 @@ export default function App() {
 
   const handleClearForm = () => {
     if (confirm('Limpar os dados do formulário atual?')) {
-      setFormData({ ...INITIAL_FORM_DATA, type: formData.type, currency: 'USD' });
+      setSaveFeedback(null);
+      setFormData(createFormState(refMonth, fortnight, formData.type));
+      setFormResetToken(prev => prev + 1);
     }
   };
 
@@ -319,6 +434,18 @@ export default function App() {
             </div>
           )}
 
+          {saveFeedback && (
+            <div
+              className={`mb-4 rounded-lg border px-4 py-3 text-xs font-medium ${
+                saveFeedback.kind === 'success'
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  : 'border-red-200 bg-red-50 text-red-700'
+              }`}
+            >
+              {saveFeedback.message}
+            </div>
+          )}
+
           {/* Dashboard View Switcher (Desktop & Mobile if tab is dashboard) */}
           {(activeTab === 'dashboard' || window.innerWidth >= 1024) && (
             <div className="mb-6 flex items-center justify-center lg:justify-end">
@@ -346,6 +473,7 @@ export default function App() {
             {activeTab === 'form' && (
               <FinancialForm
                 data={formData}
+                resetToken={formResetToken}
                 revenueOptions={revenueTransactions}
                 onChange={setFormData}
                 onAdd={handleAddTransaction}
@@ -379,6 +507,7 @@ export default function App() {
             <div className="col-span-4 space-y-6">
               <FinancialForm
                 data={formData}
+                resetToken={formResetToken}
                 revenueOptions={revenueTransactions}
                 onChange={setFormData}
                 onAdd={handleAddTransaction}

@@ -6,6 +6,7 @@ import { Calculator, TrendingDown, TrendingUp, PlusCircle, FileText, Building2, 
 
 interface Props {
   data: FinancialData;
+  resetToken: number;
   revenueOptions: FinancialData[];
   onChange: (data: FinancialData) => void;
   onAdd: (openInvoice?: boolean) => void;
@@ -28,7 +29,7 @@ const EXPENSE_TYPES = [
   "Honorários Parceiros", "Marketing / Ads", "Software / Assinaturas", "Reembolso de Viagem", "Material de Escritório", "Contabilidade"
 ];
 
-export const FinancialForm: React.FC<Props> = ({ data, revenueOptions, onChange, onAdd, onCancel }) => {
+export const FinancialForm: React.FC<Props> = ({ data, resetToken, revenueOptions, onChange, onAdd, onCancel }) => {
   const [loadingRate, setLoadingRate] = useState(false);
   const [currentRate, setCurrentRate] = useState<number | null>(null);
   const [inputAmount, setInputAmount] = useState<string>('');
@@ -52,7 +53,7 @@ export const FinancialForm: React.FC<Props> = ({ data, revenueOptions, onChange,
       setInputAmount('');
     }
     setCommissionMode(data.commissionType || 'fixed');
-  }, [data.id, data.type]);
+  }, [data.id, data.type, resetToken]);
 
   useEffect(() => {
     if (commissionMode === 'percentage' && data.type === TransactionType.REVENUE) {
@@ -249,6 +250,25 @@ export const FinancialForm: React.FC<Props> = ({ data, revenueOptions, onChange,
   );
 
   const isValid = (isValidRevenue || isValidExpense) && !!data.date;
+  const validationIssues: string[] = [];
+
+  if (!data.date) validationIssues.push('defina a data');
+
+  if (isExpense) {
+    if ((data.amount || 0) <= 0) validationIssues.push('informe o valor da despesa');
+    if (!data.description.trim()) validationIssues.push('descreva o gasto');
+    if (isCOGS && data.originator === Partner.NONE) validationIssues.push('selecione o originador ou vincule uma receita');
+    if (data.isReimbursable && (!data.reimbursementBeneficiary || data.reimbursementBeneficiary === Partner.NONE)) {
+      validationIssues.push('escolha o sócio do reembolso');
+    }
+  } else {
+    if ((data.grossRevenue || 0) <= 0) validationIssues.push('informe o valor da receita');
+    if (!data.description.trim()) validationIssues.push('preencha o cliente');
+  }
+
+  const validationMessage = validationIssues.length > 0
+    ? `Para continuar, ${validationIssues.join(' • ')}.`
+    : null;
 
   return (
     <div className={`bg-white p-4 sm:p-6 lg:p-8 rounded-2xl shadow-sm border h-full flex flex-col transition-all ${isEditing ? 'border-amber-300/80 ring-2 ring-amber-100/50' : 'border-slate-200/80'}`}>
@@ -759,14 +779,22 @@ export const FinancialForm: React.FC<Props> = ({ data, revenueOptions, onChange,
           </button>
         </div>
       ) : (
-        <button
-          onClick={() => onAdd(false)}
-          disabled={!isValid || uploading}
-          className={`mt-7 w-full flex items-center justify-center gap-2.5 py-4 rounded-xl font-bold text-sm transition-all shadow-lg active:scale-[0.98] ${isValid && !uploading ? (isExpense ? 'bg-red-600 hover:bg-red-700 text-white shadow-red-500/20' : 'bg-[#D7FF3E] hover:bg-[#cbe830] text-[#1A1C22] shadow-yellow-500/10') : 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-sm'}`}
-        >
-          {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <PlusCircle className="w-5 h-5" />}
-          {uploading ? 'Aguarde o Upload...' : 'Adicionar ao Lote'}
-        </button>
+        <div className="mt-7">
+          <button
+            onClick={() => onAdd(false)}
+            disabled={!isValid || uploading}
+            className={`w-full flex items-center justify-center gap-2.5 py-4 rounded-xl font-bold text-sm transition-all shadow-lg active:scale-[0.98] ${isValid && !uploading ? (isExpense ? 'bg-red-600 hover:bg-red-700 text-white shadow-red-500/20' : 'bg-[#D7FF3E] hover:bg-[#cbe830] text-[#1A1C22] shadow-yellow-500/10') : 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-sm'}`}
+          >
+            {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <PlusCircle className="w-5 h-5" />}
+            {uploading ? 'Aguarde o Upload...' : isExpense ? 'Registrar Despesa' : 'Adicionar ao Lote'}
+          </button>
+
+          {!isValid && !uploading && validationMessage && (
+            <p className="mt-3 text-[11px] font-medium text-amber-700">
+              {validationMessage}
+            </p>
+          )}
+        </div>
       )}
     </div>
   );

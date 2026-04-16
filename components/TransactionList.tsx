@@ -90,6 +90,8 @@ export const TransactionList: React.FC<Props> = ({ transactions, onRemove, onGen
       .sort((a, b) => new Date(b.date || '').getTime() - new Date(a.date || '').getTime());
   }, [expenses, revenues]);
 
+  const linkedExpensesCount = expenses.length - unlinkedExpenses.length;
+
   if (transactions.length === 0) {
     return (
       <div className="text-center py-20 text-slate-400 bg-white rounded-2xl border border-slate-200/80 shadow-sm">
@@ -327,7 +329,14 @@ export const TransactionList: React.FC<Props> = ({ transactions, onRemove, onGen
         {/* Content */}
         <div className="divide-y divide-slate-100/80 max-h-[500px] overflow-y-auto">
           {unlinkedExpenses.length === 0 ? (
-            <div className="p-12 text-center text-slate-400 text-sm font-medium">Nenhuma despesa operacional registrada.</div>
+            <div className="p-12 text-center text-slate-400 text-sm font-medium">
+              <p>Nenhuma despesa operacional registrada.</p>
+              {linkedExpensesCount > 0 && (
+                <p className="mt-2 text-xs text-slate-500">
+                  {linkedExpensesCount} {linkedExpensesCount === 1 ? 'custo vinculado aparece' : 'custos vinculados aparecem'} nos deals acima.
+                </p>
+              )}
+            </div>
           ) : unlinkedExpenses.map((expense, idx) => (
             <div
               key={expense.id}
