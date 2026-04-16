@@ -12,6 +12,7 @@ import { ReportModal } from './components/ReportModal';
 import { BatchProcessModal } from './components/BatchProcessModal';
 import { FinancialData, DistributionResult, Partner, TransactionType, PaymentMethod, ClientType, TransactionStatus, ExpenseCategory } from './types';
 import { calculateDistribution } from './utils/calculations';
+import { createStoredDate, formatDisplayDate, getDateDayOfMonth, getDateMonthPart, getLocalMonthPart } from './utils/date';
 import { Logo } from './components/Logo';
 import { Eraser, FilePlus2, FileBarChart, Calendar, ChevronLeft, ChevronRight, History, Zap, LayoutDashboard, PenLine, Bot, Menu, LogOut, Loader2, Activity, PieChart } from 'lucide-react';
 import { TransactionService } from './services/transactionService';
@@ -42,13 +43,13 @@ type DashboardView = 'waterfall' | 'pnl';
 type SaveFeedback = { kind: 'success' | 'error'; message: string } | null;
 
 const INITIAL_NOW = new Date();
-const INITIAL_REF_MONTH = INITIAL_NOW.toISOString().slice(0, 7);
+const INITIAL_REF_MONTH = getLocalMonthPart(INITIAL_NOW);
 const INITIAL_FORTNIGHT: 1 | 2 = INITIAL_NOW.getDate() <= 15 ? 1 : 2;
 
 const getPeriodAnchorDate = (refMonth: string, fortnight: 1 | 2) => {
   const [year, month] = refMonth.split('-').map(Number);
   const day = fortnight === 1 ? 1 : 16;
-  return new Date(year, month - 1, day, 12, 0, 0).toISOString();
+  return createStoredDate(year, month, day);
 };
 
 const createFormState = (
@@ -84,21 +85,12 @@ const createFormState = (
   };
 };
 
-const isTransactionInCurrentView = (
-  transaction: Pick<FinancialData, 'date'>,
-  refMonth: string,
-  fortnight: 1 | 2
-) => {
+const isTransactionInCurrentView = (transaction: Pick<FinancialData, 'date'>, refMonth: string, fortnight: 1 | 2) => {
   if (!transaction.date) return false;
-  const txDate = new Date(transaction.date);
-  const txMonth = transaction.date.slice(0, 7);
-  const txFortnight = txDate.getDate() <= 15 ? 1 : 2;
+  const txMonth = getDateMonthPart(transaction.date);
+  const txDay = getDateDayOfMonth(transaction.date);
+  const txFortnight = txDay && txDay <= 15 ? 1 : 2;
   return txMonth === refMonth && txFortnight === fortnight;
-};
-
-const formatTransactionDate = (date?: string) => {
-  if (!date) return '';
-  return new Date(date).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
 };
 
 export default function App() {
@@ -185,9 +177,9 @@ export default function App() {
   const transactions = useMemo(() => {
     return allTransactions.filter(t => {
       if (!t.date) return false;
-      const tDate = new Date(t.date);
-      const tMonth = t.date.slice(0, 7);
-      const tFortnight = tDate.getDate() <= 15 ? 1 : 2;
+      const tMonth = getDateMonthPart(t.date);
+      const tDay = getDateDayOfMonth(t.date);
+      const tFortnight = tDay && tDay <= 15 ? 1 : 2;
       return tMonth === refMonth && tFortnight === fortnight;
     });
   }, [allTransactions, refMonth, fortnight]);
@@ -212,7 +204,7 @@ export default function App() {
         setSaveFeedback({
           kind: 'success',
           message: updated.type === TransactionType.EXPENSE
-            ? 'Despesa atualizada com sucesso.'
+            ? `Despesa atualizada com sucesso. Data registrada: ${formatDisplayDate(updated.date)}.`
             : 'Receita atualizada com sucesso.'
         });
       } else {
@@ -227,15 +219,16 @@ export default function App() {
         const isVisibleNow = isTransactionInCurrentView(created, refMonth, fortnight);
 
         if (created.type === TransactionType.EXPENSE) {
+          const savedDateMessage = `Data registrada: ${formatDisplayDate(created.date)}.`;
           const locationMessage = created.linkedTransactionId && isVisibleNow
             ? 'Ela aparece em "Custos Vinculados" no deal correspondente.'
             : isVisibleNow
               ? 'Ela já está visível na lista do período atual.'
-              : `Ela foi salva com data ${formatTransactionDate(created.date)} e pode estar fora do filtro atual.`;
+              : 'Ela pode estar fora do filtro atual.';
 
           setSaveFeedback({
             kind: 'success',
-            message: `Despesa salva com sucesso. ${locationMessage}`
+            message: `Despesa salva com sucesso. ${savedDateMessage} ${locationMessage}`
           });
         } else {
           setSaveFeedback({
@@ -339,7 +332,7 @@ export default function App() {
 
   const isCurrentPeriod = useMemo(() => {
     const now = new Date();
-    return refMonth === now.toISOString().slice(0, 7) && fortnight === (now.getDate() <= 15 ? 1 : 2);
+    return refMonth === getLocalMonthPart(now) && fortnight === (now.getDate() <= 15 ? 1 : 2);
   }, [refMonth, fortnight]);
 
   // Auth Loading Screen

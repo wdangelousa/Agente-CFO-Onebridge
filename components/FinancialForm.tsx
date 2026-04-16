@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { FinancialData, Partner, TransactionType, ClientType, TransactionStatus, ExpenseCategory, FinancialAttachment } from '../types';
 import { getExchangeRate } from '../services/exchangeService';
 import { supabase } from '../supabaseClient';
+import { formatDisplayDate, getIsoDatePart, serializeDateInput } from '../utils/date';
 import { Calculator, TrendingDown, TrendingUp, PlusCircle, FileText, Building2, UserCircle, Save, X, Wallet, CheckCircle2, Clock, Briefcase, Layers, Link as LinkIcon, PencilLine, Info, Users, Percent, DollarSign, Upload, Paperclip, Loader2, Trash2, File as FileIcon } from 'lucide-react';
 
 interface Props {
@@ -316,8 +317,8 @@ export const FinancialForm: React.FC<Props> = ({ data, resetToken, revenueOption
             <label className="text-xs font-bold text-slate-600 uppercase mb-2.5 block tracking-wide">Data</label>
             <input
               type="date"
-              value={data.date ? data.date.split('T')[0] : ''}
-              onChange={(e) => onChange({ ...data, date: new Date(e.target.value).toISOString() })}
+              value={getIsoDatePart(data.date)}
+              onChange={(e) => onChange({ ...data, date: serializeDateInput(e.target.value) })}
               className="w-full px-4 py-3 border border-slate-300/80 rounded-xl text-sm font-semibold text-slate-800 bg-white outline-none focus:ring-2 focus:ring-[#D7FF3E]/50 focus:border-[#D7FF3E] transition-all shadow-sm"
             />
           </div>
@@ -528,7 +529,7 @@ export const FinancialForm: React.FC<Props> = ({ data, resetToken, revenueOption
                     <optgroup label="Receitas deste período">
                       {revenueOptions.map(rev => (
                         <option key={rev.id} value={rev.id}>
-                          {rev.date?.split('T')[0].split('-').reverse().join('/')} • {rev.description} (${rev.grossRevenue})
+                          {formatDisplayDate(rev.date)} • {rev.description} (${rev.grossRevenue})
                         </option>
                       ))}
                     </optgroup>

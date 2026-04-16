@@ -2,6 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { DistributionResult, FinancialData, TransactionType } from '../types';
 import { calculateDistribution } from '../utils/calculations';
+import { buildIsoDate, formatDisplayDate, getIsoDatePart, getLastDayOfMonth } from '../utils/date';
 import { Logo } from './Logo';
 import { X, Printer, CalendarRange, AlertCircle, ArrowUpCircle, Calendar, DollarSign } from 'lucide-react';
 
@@ -30,10 +31,10 @@ export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMon
 
   const fortnightDates = useMemo(() => {
     const [year, month] = referenceMonth.split('-').map(Number);
-    const lastDay = new Date(year, month, 0).getDate();
+    const lastDay = getLastDayOfMonth(year, month);
     return {
-      f1: `01/${month.toString().padStart(2, '0')} a 15/${month.toString().padStart(2, '0')}`,
-      f2: `16/${month.toString().padStart(2, '0')} a ${lastDay}/${month.toString().padStart(2, '0')}`
+      f1: `${buildIsoDate(year, month, 1)} a ${buildIsoDate(year, month, 15)}`,
+      f2: `${buildIsoDate(year, month, 16)} a ${buildIsoDate(year, month, lastDay)}`
     };
   }, [referenceMonth]);
 
@@ -43,23 +44,21 @@ export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMon
 
   const recalculateDates = (type: ReportPeriod, refMonth: string, mode: 1 | 2) => {
     const [year, monthNum] = refMonth.split('-').map(Number);
-    const month = monthNum - 1;
 
     let start = '';
     let end = '';
-    const formatDate = (date: Date) => date.toISOString().split('T')[0];
 
     if (type === ReportPeriod.QUINZENAL) {
       if (mode === 1) {
-        start = formatDate(new Date(year, month, 1));
-        end = formatDate(new Date(year, month, 15));
+        start = buildIsoDate(year, monthNum, 1);
+        end = buildIsoDate(year, monthNum, 15);
       } else {
-        start = formatDate(new Date(year, month, 16));
-        end = formatDate(new Date(year, month + 1, 0));
+        start = buildIsoDate(year, monthNum, 16);
+        end = buildIsoDate(year, monthNum, getLastDayOfMonth(year, monthNum));
       }
     } else if (type === ReportPeriod.MENSAL) {
-      start = formatDate(new Date(year, month, 1));
-      end = formatDate(new Date(year, month + 1, 0));
+      start = buildIsoDate(year, monthNum, 1);
+      end = buildIsoDate(year, monthNum, getLastDayOfMonth(year, monthNum));
     }
 
     if (start && end) {
@@ -77,7 +76,7 @@ export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMon
     if (!startDate || !endDate) return [];
     return transactions.filter(t => {
       if (!t.date) return false;
-      const tDate = t.date.split('T')[0];
+      const tDate = getIsoDatePart(t.date);
       return tDate >= startDate && tDate <= endDate;
     });
   }, [transactions, startDate, endDate]);
@@ -175,7 +174,7 @@ export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMon
                 <div className="mt-5 flex flex-col items-end text-xs font-bold text-slate-500">
                   <div className="flex items-center gap-2.5 px-4 py-1.5 bg-slate-50 rounded-full border border-slate-200/80 shadow-sm">
                     <Calendar className="w-3.5 h-3.5 text-slate-600" />
-                    <span className="tabular-nums">{startDate.split('-').reverse().join('/')} até {endDate.split('-').reverse().join('/')}</span>
+                    <span className="tabular-nums">{formatDisplayDate(startDate)} até {formatDisplayDate(endDate)}</span>
                   </div>
                   <p className="mt-2.5 text-[10px] text-slate-400 font-mono uppercase">BATCH ID: {crypto.randomUUID().split('-')[0].toUpperCase()}</p>
                 </div>
@@ -254,7 +253,7 @@ export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMon
                         {filteredTransactions.map((t, idx) => (
                           <React.Fragment key={t.id}>
                             <tr className={`text-xs group transition-colors ${idx % 2 === 0 ? 'bg-white hover:bg-slate-50/40' : 'bg-slate-50/30 hover:bg-slate-50/60'}`}>
-                              <td className="px-5 py-3.5 text-slate-500 font-mono tabular-nums">{t.date?.split('T')[0].split('-').reverse().join('/')}</td>
+                              <td className="px-5 py-3.5 text-slate-500 font-mono tabular-nums">{formatDisplayDate(t.date)}</td>
                               <td className="px-5 py-3.5">
                                 <p className="font-bold text-slate-800 mb-0.5">{t.description}</p>
                                 <p className="text-[10px] text-slate-400">{t.serviceType || 'Operacional'}</p>
@@ -265,7 +264,7 @@ export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMon
                             </tr>
                             {t.type === TransactionType.REVENUE && t.externalCommission && t.externalCommission > 0 && (
                               <tr className="text-xs bg-red-50/40">
-                                <td className="px-5 py-3.5 text-slate-400 font-mono tabular-nums">{t.date?.split('T')[0].split('-').reverse().join('/')}</td>
+                                <td className="px-5 py-3.5 text-slate-400 font-mono tabular-nums">{formatDisplayDate(t.date)}</td>
                                 <td className="px-5 py-3.5">
                                   <p className="font-bold text-slate-700 mb-0.5">Comissão Externa: {t.externalCommissionDescription || 'Parceiro'}</p>
                                   <p className="text-[10px] text-slate-400">Ref: {t.description}</p>

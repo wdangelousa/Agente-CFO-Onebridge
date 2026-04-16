@@ -1,6 +1,7 @@
 
 import React, { useMemo } from 'react';
 import { FinancialData, TransactionType, TransactionStatus, ExpenseCategory } from '../types';
+import { formatDisplayDate } from '../utils/date';
 import { Trash2, FileText, CheckCircle2, Clock, Pencil, Layers, Briefcase, Paperclip, Files } from 'lucide-react';
 
 interface Props {
@@ -165,7 +166,7 @@ export const TransactionList: React.FC<Props> = ({ transactions, onRemove, onGen
                           </div>
                           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-slate-500">
                             <span className="font-medium tabular-nums whitespace-nowrap">
-                              {revenue.date?.split('T')[0].split('-').reverse().join('/')}
+                              {formatDisplayDate(revenue.date)}
                             </span>
                             <span className="text-slate-300 hidden sm:inline">•</span>
                             <span className="text-slate-600 font-medium truncate max-w-full sm:max-w-[200px]">{revenue.serviceType || 'Serviço Geral'}</span>
@@ -250,8 +251,8 @@ export const TransactionList: React.FC<Props> = ({ transactions, onRemove, onGen
                             className={`flex items-center justify-between group/cost px-3 py-2.5 rounded-lg border transition-all duration-150 ${costIdx % 2 === 0 ? 'bg-white/80 border-transparent hover:border-slate-200/80' : 'bg-slate-50/50 border-transparent hover:border-slate-200/80'} hover:shadow-sm`}
                           >
                             <div className="flex items-center gap-3 flex-1 min-w-0">
-                              <span className="text-[10px] font-mono text-slate-400 tabular-nums flex-shrink-0 w-10">
-                                {cost.date?.split('T')[0].split('-').reverse().join('/').slice(0, 5)}
+                              <span className="text-[10px] font-mono text-slate-400 tabular-nums flex-shrink-0 w-[88px]">
+                                {formatDisplayDate(cost.date)}
                               </span>
                               {cost.status === TransactionStatus.PAID ? (
                                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" title="Pago" />
@@ -375,7 +376,7 @@ export const TransactionList: React.FC<Props> = ({ transactions, onRemove, onGen
                   </div>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
                     <span className="font-medium tabular-nums whitespace-nowrap">
-                      {expense.date?.split('T')[0].split('-').reverse().join('/')}
+                      {formatDisplayDate(expense.date)}
                     </span>
                     {expense.serviceType && (
                       <>
