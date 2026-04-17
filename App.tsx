@@ -85,14 +85,6 @@ const createFormState = (
   };
 };
 
-const isTransactionInCurrentView = (transaction: Pick<FinancialData, 'date'>, refMonth: string, fortnight: 1 | 2) => {
-  if (!transaction.date) return false;
-  const txMonth = getDateMonthPart(transaction.date);
-  const txDay = getDateDayOfMonth(transaction.date);
-  const txFortnight = txDay && txDay <= 15 ? 1 : 2;
-  return txMonth === refMonth && txFortnight === fortnight;
-};
-
 export default function App() {
   // Auth State
   const [session, setSession] = useState<Session | null>(null);
@@ -198,9 +190,12 @@ export default function App() {
     try {
       setSaveFeedback(null);
 
+      let savedTransaction: FinancialData;
+
       if (formData.id && formData.id !== 'manual') {
         const updated = await TransactionService.update(formData);
         setAllTransactions(prev => prev.map(t => t.id === updated.id ? updated : t));
+        savedTransaction = updated;
         setSaveFeedback({
           kind: 'success',
           message: updated.type === TransactionType.EXPENSE
@@ -215,20 +210,16 @@ export default function App() {
 
         const created = await TransactionService.create(newTransactionPayload);
         setAllTransactions(prev => [...prev, created]);
-
-        const isVisibleNow = isTransactionInCurrentView(created, refMonth, fortnight);
+        savedTransaction = created;
 
         if (created.type === TransactionType.EXPENSE) {
-          const savedDateMessage = `Data registrada: ${formatDisplayDate(created.date)}.`;
-          const locationMessage = created.linkedTransactionId && isVisibleNow
+          const locationMessage = created.linkedTransactionId
             ? 'Ela aparece em "Custos Vinculados" no deal correspondente.'
-            : isVisibleNow
-              ? 'Ela já está visível na lista do período atual.'
-              : 'Ela pode estar fora do filtro atual.';
+            : 'Ela já está visível na lista do período.';
 
           setSaveFeedback({
             kind: 'success',
-            message: `Despesa salva com sucesso. ${savedDateMessage} ${locationMessage}`
+            message: `Despesa salva com sucesso. Data registrada: ${formatDisplayDate(created.date)}. ${locationMessage}`
           });
         } else {
           setSaveFeedback({
@@ -244,7 +235,17 @@ export default function App() {
         }
       }
 
-      setFormData(createFormState(refMonth, fortnight, formData.type));
+      const targetMonth = getDateMonthPart(savedTransaction.date);
+      const targetDay = getDateDayOfMonth(savedTransaction.date);
+      const targetFortnight: 1 | 2 = targetDay && targetDay <= 15 ? 1 : 2;
+      if (targetMonth && (targetMonth !== refMonth || targetFortnight !== fortnight)) {
+        setRefMonth(targetMonth);
+        setFortnight(targetFortnight);
+      }
+
+      const nextMonth = targetMonth || refMonth;
+      const nextFortnight = targetMonth ? targetFortnight : fortnight;
+      setFormData(createFormState(nextMonth, nextFortnight, formData.type));
       setFormResetToken(prev => prev + 1);
       if (window.innerWidth < 1024) {
         setActiveTab('dashboard');
