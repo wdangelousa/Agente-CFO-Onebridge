@@ -194,40 +194,40 @@ export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMon
 
                 {/* Summary Cards */}
                 {/* Summary Cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-0.5 bg-slate-200/60 rounded-2xl overflow-hidden border border-slate-200/80 shadow-sm break-inside-avoid print:grid-cols-3 print:gap-2 print:bg-transparent print:border-0 print:rounded-none print:shadow-none print:overflow-visible">
-                  <div className="p-4 sm:p-5 bg-white print:rounded-xl print:border print:border-slate-200">
+                <div className="grid grid-cols-1 gap-3 break-inside-avoid sm:grid-cols-2 lg:grid-cols-6 print:grid-cols-6 print:gap-2">
+                  <div className="min-w-0 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5 lg:col-span-2 print:col-span-2">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">Receita</p>
-                    <div className="flex items-center gap-1.5 print:flex-col print:items-start print:gap-1">
+                    <div className="flex min-w-0 items-center gap-2">
                       <DollarSign className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                      <p className="text-lg sm:text-xl print:text-base font-black text-slate-900 tabular-nums whitespace-nowrap leading-none">{formatCurrency(filteredResult.grossTotalBookkeeping)}</p>
+                      <p className="min-w-0 text-base sm:text-lg lg:text-[17px] font-black text-slate-900 tabular-nums whitespace-nowrap leading-tight tracking-tight">{formatCurrency(filteredResult.grossTotalBookkeeping)}</p>
                     </div>
                   </div>
-                  <div className="p-4 sm:p-5 bg-white print:rounded-xl print:border print:border-slate-200">
+                  <div className="min-w-0 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5 lg:col-span-2 print:col-span-2">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">Custos Variáveis</p>
-                    <div className="flex items-center gap-1.5 print:flex-col print:items-start print:gap-1">
+                    <div className="flex min-w-0 items-center gap-2">
                       <DollarSign className="w-4 h-4 text-red-600 flex-shrink-0" />
-                      <p className="text-lg sm:text-xl print:text-base font-black text-red-600 tabular-nums whitespace-nowrap leading-none">{formatCurrency(filteredResult.totalCOGS)}</p>
+                      <p className="min-w-0 text-base sm:text-lg lg:text-[17px] font-black text-red-600 tabular-nums whitespace-nowrap leading-tight tracking-tight">{formatCurrency(filteredResult.totalCOGS)}</p>
                     </div>
                   </div>
-                  <div className="p-4 sm:p-5 bg-white print:rounded-xl print:border print:border-slate-200">
+                  <div className="min-w-0 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5 lg:col-span-2 print:col-span-2">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">Despesas OpEx</p>
-                    <div className="flex items-center gap-1.5 print:flex-col print:items-start print:gap-1">
+                    <div className="flex min-w-0 items-center gap-2">
                       <DollarSign className="w-4 h-4 text-red-600 flex-shrink-0" />
-                      <p className="text-lg sm:text-xl print:text-base font-black text-red-600 tabular-nums whitespace-nowrap leading-none">{formatCurrency(filteredResult.totalOpEx)}</p>
+                      <p className="min-w-0 text-base sm:text-lg lg:text-[17px] font-black text-red-600 tabular-nums whitespace-nowrap leading-tight tracking-tight">{formatCurrency(filteredResult.totalOpEx)}</p>
                     </div>
                   </div>
-                  <div className="p-4 sm:p-5 bg-white print:rounded-xl print:border print:border-slate-200">
+                  <div className="min-w-0 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5 lg:col-span-3 print:col-span-3">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">Líquido</p>
-                    <div className="flex items-center gap-1.5 print:flex-col print:items-start print:gap-1">
+                    <div className="flex min-w-0 items-center gap-2">
                       <DollarSign className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                      <p className="text-lg sm:text-xl print:text-base font-black text-emerald-600 tabular-nums whitespace-nowrap leading-none">{formatCurrency(filteredResult.safetyMargin)}</p>
+                      <p className="min-w-0 text-base sm:text-lg lg:text-[17px] font-black text-emerald-600 tabular-nums whitespace-nowrap leading-tight tracking-tight">{formatCurrency(filteredResult.safetyMargin)}</p>
                     </div>
                   </div>
-                  <div className="p-4 sm:p-5 bg-slate-900 text-white sm:col-span-2 lg:col-span-1 print:col-span-1 print:rounded-xl print:border print:border-slate-900">
+                  <div className="min-w-0 rounded-2xl border border-slate-900 bg-slate-900 p-4 text-white shadow-sm sm:col-span-2 sm:p-5 lg:col-span-3 print:col-span-3">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">Reserva (12%)</p>
-                    <div className="flex items-center gap-1.5 print:flex-col print:items-start print:gap-1">
+                    <div className="flex min-w-0 items-center gap-2">
                       <DollarSign className="w-4 h-4 text-white flex-shrink-0" />
-                      <p className="text-lg sm:text-xl print:text-base font-black tabular-nums whitespace-nowrap leading-none">{formatCurrency(filteredResult.companyReserve)}</p>
+                      <p className="min-w-0 text-base sm:text-lg lg:text-[17px] font-black tabular-nums whitespace-nowrap leading-tight tracking-tight">{formatCurrency(filteredResult.companyReserve)}</p>
                     </div>
                   </div>
                 </div>

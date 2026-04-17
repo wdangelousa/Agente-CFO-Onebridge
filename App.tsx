@@ -41,10 +41,46 @@ const INITIAL_FORM_DATA: FinancialData = {
 type MobileTab = 'form' | 'dashboard' | 'cfo';
 type DashboardView = 'waterfall' | 'pnl';
 type SaveFeedback = { kind: 'success' | 'error'; message: string } | null;
+const ACTIVE_PERIOD_STORAGE_KEY = 'onebridge:active-period';
 
 const INITIAL_NOW = new Date();
 const INITIAL_REF_MONTH = getLocalMonthPart(INITIAL_NOW);
 const INITIAL_FORTNIGHT: 1 | 2 = INITIAL_NOW.getDate() <= 15 ? 1 : 2;
+
+const readStoredPeriod = () => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(ACTIVE_PERIOD_STORAGE_KEY);
+    if (!rawValue) {
+      return null;
+    }
+
+    const parsed = JSON.parse(rawValue) as { refMonth?: string; fortnight?: number };
+    const storedFortnight = parsed.fortnight === 1 || parsed.fortnight === 2 ? parsed.fortnight : null;
+    const hasValidMonth = typeof parsed.refMonth === 'string' && /^\d{4}-\d{2}$/.test(parsed.refMonth);
+
+    if (!hasValidMonth || !storedFortnight) {
+      return null;
+    }
+
+    return {
+      refMonth: parsed.refMonth,
+      fortnight: storedFortnight
+    };
+  } catch {
+    return null;
+  }
+};
+
+const getInitialPeriod = () => {
+  return readStoredPeriod() || {
+    refMonth: INITIAL_REF_MONTH,
+    fortnight: INITIAL_FORTNIGHT
+  };
+};
 
 const getPeriodAnchorDate = (refMonth: string, fortnight: 1 | 2) => {
   const [year, month] = refMonth.split('-').map(Number);
@@ -86,14 +122,16 @@ const createFormState = (
 };
 
 export default function App() {
+  const initialPeriod = getInitialPeriod();
+
   // Auth State
   const [session, setSession] = useState<Session | null>(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
 
   // App Data State
-  const [refMonth, setRefMonth] = useState(INITIAL_REF_MONTH);
-  const [fortnight, setFortnight] = useState<1 | 2>(INITIAL_FORTNIGHT);
-  const [formData, setFormData] = useState<FinancialData>(() => createFormState(INITIAL_REF_MONTH, INITIAL_FORTNIGHT));
+  const [refMonth, setRefMonth] = useState(initialPeriod.refMonth);
+  const [fortnight, setFortnight] = useState<1 | 2>(initialPeriod.fortnight);
+  const [formData, setFormData] = useState<FinancialData>(() => createFormState(initialPeriod.refMonth, initialPeriod.fortnight));
   const [allTransactions, setAllTransactions] = useState<FinancialData[]>([]);
   const [loadingData, setLoadingData] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<SaveFeedback>(null);
@@ -152,6 +190,21 @@ export default function App() {
       loadTransactions();
     }
   }, [session]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(
+        ACTIVE_PERIOD_STORAGE_KEY,
+        JSON.stringify({ refMonth, fortnight })
+      );
+    } catch {
+      // Ignore storage failures and keep the in-memory period selection.
+    }
+  }, [refMonth, fortnight]);
 
   useEffect(() => {
     setFormData(prev => {
