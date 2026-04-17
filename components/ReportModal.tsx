@@ -87,8 +87,8 @@ export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMon
   const formatCurrency = (val: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/70 backdrop-blur-sm print:bg-white print:p-0">
-      <div className="bg-white w-full max-w-5xl h-[95vh] rounded-2xl shadow-2xl flex flex-col print:h-auto print:shadow-none print:w-full print:max-w-none print:rounded-none overflow-hidden">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/70 backdrop-blur-sm print:static print:block print:overflow-visible print:bg-white print:p-0">
+      <div className="bg-white w-full max-w-5xl h-[95vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden print:block print:h-auto print:w-full print:max-w-none print:rounded-none print:shadow-none print:overflow-visible">
 
         {/* Controls Bar */}
         <div className="p-5 bg-gradient-to-b from-slate-50 to-white border-b border-slate-200/80 flex flex-wrap gap-6 items-end print:hidden shadow-sm">
@@ -162,8 +162,8 @@ export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMon
         </div>
 
         {/* Report Content */}
-        <div className="flex-1 overflow-auto bg-slate-100/50 p-4 sm:p-8 print:p-0 print:bg-white print:overflow-visible">
-          <div className="bg-white w-full lg:w-[210mm] lg:min-h-[297mm] mx-auto shadow-xl p-6 sm:p-10 lg:p-[20mm] print:shadow-none print:m-0 print:w-full print:max-w-none print:h-auto text-slate-900 relative">
+        <div className="flex-1 overflow-auto bg-slate-100/50 p-4 sm:p-8 print:block print:overflow-visible print:bg-white print:p-0">
+          <div className="bg-white w-full lg:w-[210mm] lg:min-h-[297mm] mx-auto shadow-xl p-6 sm:p-10 lg:p-[20mm] text-slate-900 relative print:m-0 print:h-auto print:w-full print:max-w-none print:min-h-0 print:shadow-none print:p-[12mm]">
 
             {/* Header */}
             <div className="flex justify-between items-start mb-12 border-b-4 border-slate-900 pb-6">
@@ -190,44 +190,44 @@ export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMon
                 <p className="text-sm text-slate-400 mt-2">Nenhuma transação encontrada no período selecionado</p>
               </div>
             ) : (
-              <div className="space-y-10">
+              <div className="space-y-10 print:space-y-8">
 
                 {/* Summary Cards */}
                 {/* Summary Cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-0.5 bg-slate-200/60 rounded-2xl overflow-hidden border border-slate-200/80 shadow-sm print:grid-cols-5">
-                  <div className="p-4 sm:p-5 bg-white">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-0.5 bg-slate-200/60 rounded-2xl overflow-hidden border border-slate-200/80 shadow-sm break-inside-avoid print:grid-cols-3 print:gap-2 print:bg-transparent print:border-0 print:rounded-none print:shadow-none print:overflow-visible">
+                  <div className="p-4 sm:p-5 bg-white print:rounded-xl print:border print:border-slate-200">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">Receita</p>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 print:flex-col print:items-start print:gap-1">
                       <DollarSign className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                      <p className="text-lg sm:text-xl font-black text-slate-900 tabular-nums break-all">{formatCurrency(filteredResult.grossTotalBookkeeping)}</p>
+                      <p className="text-lg sm:text-xl print:text-base font-black text-slate-900 tabular-nums whitespace-nowrap leading-none">{formatCurrency(filteredResult.grossTotalBookkeeping)}</p>
                     </div>
                   </div>
-                  <div className="p-4 sm:p-5 bg-white">
+                  <div className="p-4 sm:p-5 bg-white print:rounded-xl print:border print:border-slate-200">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">Custos Variáveis</p>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 print:flex-col print:items-start print:gap-1">
                       <DollarSign className="w-4 h-4 text-red-600 flex-shrink-0" />
-                      <p className="text-lg sm:text-xl font-black text-red-600 tabular-nums break-all">{formatCurrency(filteredResult.totalCOGS)}</p>
+                      <p className="text-lg sm:text-xl print:text-base font-black text-red-600 tabular-nums whitespace-nowrap leading-none">{formatCurrency(filteredResult.totalCOGS)}</p>
                     </div>
                   </div>
-                  <div className="p-4 sm:p-5 bg-white">
+                  <div className="p-4 sm:p-5 bg-white print:rounded-xl print:border print:border-slate-200">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">Despesas OpEx</p>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 print:flex-col print:items-start print:gap-1">
                       <DollarSign className="w-4 h-4 text-red-600 flex-shrink-0" />
-                      <p className="text-lg sm:text-xl font-black text-red-600 tabular-nums break-all">{formatCurrency(filteredResult.totalOpEx)}</p>
+                      <p className="text-lg sm:text-xl print:text-base font-black text-red-600 tabular-nums whitespace-nowrap leading-none">{formatCurrency(filteredResult.totalOpEx)}</p>
                     </div>
                   </div>
-                  <div className="p-4 sm:p-5 bg-white">
+                  <div className="p-4 sm:p-5 bg-white print:rounded-xl print:border print:border-slate-200">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">Líquido</p>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 print:flex-col print:items-start print:gap-1">
                       <DollarSign className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                      <p className="text-lg sm:text-xl font-black text-emerald-600 tabular-nums break-all">{formatCurrency(filteredResult.safetyMargin)}</p>
+                      <p className="text-lg sm:text-xl print:text-base font-black text-emerald-600 tabular-nums whitespace-nowrap leading-none">{formatCurrency(filteredResult.safetyMargin)}</p>
                     </div>
                   </div>
-                  <div className="p-4 sm:p-5 bg-slate-900 text-white sm:col-span-2 lg:col-span-1 print:col-span-1">
+                  <div className="p-4 sm:p-5 bg-slate-900 text-white sm:col-span-2 lg:col-span-1 print:col-span-1 print:rounded-xl print:border print:border-slate-900">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">Reserva (12%)</p>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 print:flex-col print:items-start print:gap-1">
                       <DollarSign className="w-4 h-4 text-white flex-shrink-0" />
-                      <p className="text-lg sm:text-xl font-black tabular-nums break-all">{formatCurrency(filteredResult.companyReserve)}</p>
+                      <p className="text-lg sm:text-xl print:text-base font-black tabular-nums whitespace-nowrap leading-none">{formatCurrency(filteredResult.companyReserve)}</p>
                     </div>
                   </div>
                 </div>
@@ -240,7 +240,7 @@ export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMon
                     </div>
                     Detalhamento de Transações
                   </h3>
-                  <div className="border border-slate-200/80 rounded-xl overflow-hidden shadow-sm">
+                  <div className="border border-slate-200/80 rounded-xl overflow-hidden shadow-sm print:overflow-visible print:rounded-none print:shadow-none">
                     <table className="w-full text-sm border-collapse">
                       <thead>
                         <tr className="bg-gradient-to-b from-slate-50 to-white text-[10px] font-bold text-slate-600 uppercase border-b border-slate-200/80 text-left">
@@ -282,7 +282,7 @@ export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMon
                 </div>
 
                 {/* Distribution Table */}
-                <div className="bg-slate-900 rounded-2xl p-8 text-white shadow-lg">
+                <div className="bg-slate-900 rounded-2xl p-8 text-white shadow-lg break-inside-avoid print:rounded-xl print:shadow-none">
                   <h3 className="text-xs font-black uppercase tracking-widest mb-6 border-b border-slate-700/60 pb-5 flex items-center gap-2.5">
                     <div className="p-1.5 bg-emerald-500/20 rounded-lg">
                       <CalendarRange className="w-4 h-4 text-emerald-400" />
@@ -344,7 +344,7 @@ export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMon
                 </div>
 
                 {/* Signature Section */}
-                <div className="mt-16 pt-10 border-t-2 border-slate-200/80 grid grid-cols-2 gap-24">
+                <div className="mt-16 pt-10 border-t-2 border-slate-200/80 grid grid-cols-2 gap-24 break-inside-avoid">
                   <div className="text-center">
                     <div className="border-b-2 border-slate-300/80 h-12 mb-3"></div>
                     <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">OneBridge Systems (CFO)</p>
@@ -358,7 +358,7 @@ export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMon
             )}
 
             {/* Footer */}
-            <div className="absolute bottom-8 left-0 right-0 text-center">
+            <div className="mt-12 pt-6 border-t border-slate-200/80 text-center">
               <p className="text-[9px] text-slate-300 font-mono uppercase tracking-widest">Documento Interno Confidencial • OneBridge Stalwart LLC</p>
             </div>
           </div>
