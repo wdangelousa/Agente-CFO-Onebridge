@@ -1,8 +1,9 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { DistributionResult, FinancialData, MonthlyClosingSnapshot, TransactionType } from '../types';
+import { DistributionResult, FinancialData, PeriodClosingSnapshot, TransactionType } from '../types';
 import { calculateDistribution } from '../utils/calculations';
 import { buildIsoDate, formatDisplayDate, getIsoDatePart, getLastDayOfMonth } from '../utils/date';
+import { PeriodHalf, getPeriodFromMonthAndHalf, getPeriodReportFileName } from '../utils/periods';
 import { Logo } from './Logo';
 import { printWithSuggestedFileName } from '../utils/printDocument';
 import { X, Printer, CalendarRange, AlertCircle, ArrowUpCircle, Calendar, DollarSign } from 'lucide-react';
@@ -10,9 +11,10 @@ import { X, Printer, CalendarRange, AlertCircle, ArrowUpCircle, Calendar, Dollar
 interface Props {
   result: DistributionResult;
   transactions: FinancialData[];
-  closings: MonthlyClosingSnapshot[];
+  periodClosings: PeriodClosingSnapshot[];
   onClose: () => void;
   initialMonth: string;
+  initialHalf?: PeriodHalf;
   onPeriodChange: (month: string) => void;
 }
 
@@ -22,10 +24,11 @@ enum ReportPeriod {
   CUSTOM = 'Livre'
 }
 
-export const ReportModal: React.FC<Props> = ({ transactions, closings, onClose, initialMonth, onPeriodChange }) => {
-  const [periodType, setPeriodType] = useState<ReportPeriod>(ReportPeriod.MENSAL);
+export const ReportModal: React.FC<Props> = ({ transactions, periodClosings, onClose, initialMonth, initialHalf = 'H1', onPeriodChange }) => {
+  // Official report defaults to the semi-monthly (Quinzenal) view.
+  const [periodType, setPeriodType] = useState<ReportPeriod>(ReportPeriod.QUINZENAL);
   const [referenceMonth, setReferenceMonth] = useState(initialMonth);
-  const [fortnightMode, setFortnightMode] = useState<1 | 2>(1);
+  const [fortnightMode, setFortnightMode] = useState<1 | 2>(initialHalf === 'H2' ? 2 : 1);
 
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -83,11 +86,17 @@ export const ReportModal: React.FC<Props> = ({ transactions, closings, onClose, 
   }, [transactions, startDate, endDate]);
 
   const filteredResult = useMemo(() => calculateDistribution(filteredTransactions), [filteredTransactions]);
+
+  // Official closings are semi-monthly: match by period key when in Quinzenal mode.
+  const currentPeriod = useMemo(
+    () => getPeriodFromMonthAndHalf(referenceMonth, fortnightMode === 2 ? 'H2' : 'H1'),
+    [referenceMonth, fortnightMode]
+  );
   const officialClosing = useMemo(() => {
-    return periodType === ReportPeriod.MENSAL
-      ? closings.find((closing) => closing.month === referenceMonth) || null
+    return periodType === ReportPeriod.QUINZENAL
+      ? periodClosings.find((closing) => closing.periodKey === currentPeriod.periodKey) || null
       : null;
-  }, [closings, periodType, referenceMonth]);
+  }, [periodClosings, periodType, currentPeriod]);
 
   const officialClosingDiffers = useMemo(() => {
     if (!officialClosing) return false;
@@ -100,7 +109,17 @@ export const ReportModal: React.FC<Props> = ({ transactions, closings, onClose, 
       || Math.abs(officialClosing.distributableProfit - filteredResult.distributableBalance) > 0.01;
   }, [filteredResult, officialClosing]);
 
-  const suggestedFileName = `Onebridge-Monthly-Closing-${referenceMonth}`;
+  const reportTitle = periodType === ReportPeriod.QUINZENAL
+    ? 'Semi-Monthly Closing Report'
+    : periodType === ReportPeriod.MENSAL
+      ? 'Monthly Management Summary'
+      : 'Custom Period Report';
+
+  const suggestedFileName = periodType === ReportPeriod.QUINZENAL
+    ? getPeriodReportFileName(currentPeriod)
+    : periodType === ReportPeriod.MENSAL
+      ? `Onebridge-Monthly-Summary-${referenceMonth}`
+      : `Onebridge-Report-${startDate}_${endDate}`;
   // Browser print-to-PDF using the existing print-ready report layout. Read-only:
   // uses already-calculated values, changes no data.
   const handlePrint = () => printWithSuggestedFileName(suggestedFileName);
@@ -197,14 +216,14 @@ export const ReportModal: React.FC<Props> = ({ transactions, closings, onClose, 
             <div className="flex justify-between items-start mb-12 border-b-4 border-[#102033] pb-6">
               <div className="scale-90 origin-top-left"><Logo variant="dark" /></div>
               <div className="text-right">
-                <h1 className="text-3xl font-black text-[#102033] uppercase tracking-tight leading-tight">Monthly Closing Report</h1>
+                <h1 className="text-3xl font-black text-[#102033] uppercase tracking-tight leading-tight">{reportTitle}</h1>
                 <p className="text-sm font-bold text-[#B9824A] uppercase tracking-widest mt-1.5">Onebridge Stalwart Internal Review</p>
                 <div className="mt-5 flex flex-col items-end text-xs font-bold text-slate-500">
                   <div className="flex items-center gap-2.5 px-4 py-1.5 bg-slate-50 rounded-full border border-slate-200/80 shadow-sm">
                     <Calendar className="w-3.5 h-3.5 text-slate-600" />
                     <span className="tabular-nums">{formatDisplayDate(startDate)} até {formatDisplayDate(endDate)}</span>
                   </div>
-                  <p className="mt-2.5 text-[10px] text-slate-400 font-mono uppercase">MONTH: {referenceMonth}</p>
+                  <p className="mt-2.5 text-[10px] text-slate-400 font-mono uppercase">PERIOD: {periodType === ReportPeriod.QUINZENAL ? currentPeriod.periodKey : referenceMonth}</p>
                   <p className="mt-1 text-[10px] text-slate-400 font-mono uppercase">Exportado: {exportedAt}</p>
                 </div>
               </div>

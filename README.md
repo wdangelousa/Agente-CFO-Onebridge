@@ -23,9 +23,19 @@ Chaves locais usadas pelo app:
 
 - `onebridge_cfo_transactions_v1`
 - `onebridge_cfo_configurable_options_v1`
-- `onebridge_cfo_monthly_closings_v1`
+- `onebridge_cfo_period_closings_v1` — fechamentos oficiais **quinzenais** (semi-monthly)
+- `onebridge_cfo_monthly_closings_v1` — fechamentos mensais **legados** (preservados, não oficiais)
 - `onebridge_cfo_invoices_v1`
 - `onebridge_cfo_invoice_sequence_v1`
+
+### Fechamento oficial: quinzenal (semi-monthly)
+
+O fechamento oficial e a lógica de distribuição são **quinzenais**:
+
+- **1ª quinzena (H1):** dia 1 até o dia 15.
+- **2ª quinzena (H2):** dia 16 até o último dia do mês (considera meses curtos e anos bissextos).
+
+Cada fechamento gera um snapshot quinzenal (`onebridge_cfo_period_closings_v1`) com chave de período como `2026-05-H1` / `2026-05-H2`. A visão mensal continua disponível apenas como **resumo gerencial** — ela não é o fechamento oficial. Fechamentos mensais antigos são preservados como dados legados e exportados no backup, mas não são usados como fechamento oficial quinzenal.
 
 Recomendação operacional: exporte backups JSON regularmente, especialmente após fechar um mês ou emitir invoices.
 
@@ -35,7 +45,7 @@ As regras financeiras atuais do MVP estão documentadas em [docs/FINANCIAL_RULES
 - **Cálculo Automático**: Distribuição conforme Operating Agreement.
 - **Taxas de Originação**: 10% para o sócio originador.
 - **Reserva de Capital**: Retenção automática de 12%.
-- **Histórico Mensal Local**: Transações e fechamentos salvos por mês.
+- **Fechamento Quinzenal Oficial**: Fechamentos semi-mensais (H1: 1–15, H2: 16–fim) com snapshots por período; visão mensal mantida como resumo gerencial.
 - **Invoices Locais**: Numeração e status persistidos no navegador.
 - **Backup JSON**: Exportação/importação de transações, opções, fechamentos e invoices.
 

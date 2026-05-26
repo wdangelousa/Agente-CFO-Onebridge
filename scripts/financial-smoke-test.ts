@@ -1,6 +1,16 @@
 import { calculateDistribution, calculateProfitAndLoss, roundCurrency } from '../utils/calculations.ts';
 import { ClientType, ExpenseCategory, FinancialData, InvoiceRecord, Partner, PaymentMethod, TransactionStatus, TransactionType } from '../types.ts';
-import { MonthlyClosingService } from '../services/monthlyClosingService.ts';
+import {
+  buildSemiMonthlyPeriod,
+  getPeriodFromKey,
+  getPeriodReportFileName,
+  getPreviousSemiMonthlyPeriod,
+  getSemiMonthlyPeriodForDate,
+  getSemiMonthlyPeriodsForMonth,
+  isDateInPeriod,
+} from '../utils/periods.ts';
+import { PeriodClosingService } from '../services/periodClosingService.ts';
+import { LocalBackupService } from '../services/localBackupService.ts';
 
 const baseTransaction = {
   clientType: ClientType.INDIVIDUAL,
@@ -112,8 +122,71 @@ assertClose('cash P&L excludes unpaid revenue', cashPnL.grossRevenue, 0);
 assertClose('accrual P&L includes unpaid revenue', accrualPnL.grossRevenue, 1000);
 assertClose('accrual P&L includes unpaid OpEx', accrualPnL.opex, 100);
 
-const closedSnapshot = MonthlyClosingService.buildSnapshot('2026-05', [revenue({ grossRevenue: 1000 })], paidRevenueOnly);
-assertEqual('closed month stores live engine total', closedSnapshot.distributableProfit, paidRevenueOnly.distributableBalance);
+// --- Semi-monthly period model ------------------------------------------------
+
+assertEqual('day 1 -> H1', getSemiMonthlyPeriodForDate('2026-05-01').half, 'H1');
+assertEqual('day 15 -> H1', getSemiMonthlyPeriodForDate('2026-05-15').half, 'H1');
+assertEqual('day 16 -> H2', getSemiMonthlyPeriodForDate('2026-05-16').half, 'H2');
+assertEqual('last day -> H2', getSemiMonthlyPeriodForDate('2026-05-31').half, 'H2');
+
+const [mayH1, mayH2] = getSemiMonthlyPeriodsForMonth(2026, 5);
+assertEqual('H1 start date', mayH1.startDate, '2026-05-01');
+assertEqual('H1 end date', mayH1.endDate, '2026-05-15');
+assertEqual('H2 start date', mayH2.startDate, '2026-05-16');
+assertEqual('H2 end date (May 31)', mayH2.endDate, '2026-05-31');
+assertEqual('H1 period key', mayH1.periodKey, '2026-05-H1');
+assertEqual('H1 month key', mayH1.monthKey, '2026-05');
+assertEqual('H1 label en-dash', mayH1.label, 'May 1–15, 2026');
+
+// Leap-year February end dates
+assertEqual('leap Feb H2 end (2024)', getSemiMonthlyPeriodsForMonth(2024, 2)[1].endDate, '2024-02-29');
+assertEqual('non-leap Feb H2 end (2026)', getSemiMonthlyPeriodsForMonth(2026, 2)[1].endDate, '2026-02-28');
+
+// Previous period navigation
+assertEqual('prev of H2 is same-month H1', getPreviousSemiMonthlyPeriod(mayH2).periodKey, '2026-05-H1');
+assertEqual('prev of H1 is prev-month H2', getPreviousSemiMonthlyPeriod(mayH1).periodKey, '2026-04-H2');
+assertEqual('prev of Jan H1 crosses year', getPreviousSemiMonthlyPeriod(buildSemiMonthlyPeriod(2026, 1, 'H1')).periodKey, '2025-12-H2');
+
+// Period key parsing
+assertEqual('parse period key end date', getPeriodFromKey('2026-05-H2')?.endDate, '2026-05-31');
+
+// Date-range filtering: H1 = days 1-15, H2 = days 16-last
+assertEqual('day1 in H1', isDateInPeriod('2026-05-01T12:00:00.000Z', mayH1), true);
+assertEqual('day15 in H1', isDateInPeriod('2026-05-15T12:00:00.000Z', mayH1), true);
+assertEqual('day16 not in H1', isDateInPeriod('2026-05-16T12:00:00.000Z', mayH1), false);
+assertEqual('day16 in H2', isDateInPeriod('2026-05-16T12:00:00.000Z', mayH2), true);
+assertEqual('last day in H2', isDateInPeriod('2026-05-31T12:00:00.000Z', mayH2), true);
+
+const mayTxns = [
+  revenue({ date: '2026-05-01T12:00:00.000Z', grossRevenue: 1000 }),
+  revenue({ date: '2026-05-15T12:00:00.000Z', grossRevenue: 1000 }),
+  revenue({ date: '2026-05-16T12:00:00.000Z', grossRevenue: 1000 }),
+  revenue({ date: '2026-05-31T12:00:00.000Z', grossRevenue: 1000 }),
+];
+const h1Txns = mayTxns.filter((t) => isDateInPeriod(t.date, mayH1));
+const h2Txns = mayTxns.filter((t) => isDateInPeriod(t.date, mayH2));
+assertEqual('H1 captures 2 transactions', h1Txns.length, 2);
+assertEqual('H2 captures 2 transactions', h2Txns.length, 2);
+assertClose('H1 realized revenue (days 1 & 15)', calculateDistribution(h1Txns).realizedRevenue, 2000);
+assertClose('H2 realized revenue (days 16 & last)', calculateDistribution(h2Txns).realizedRevenue, 2000);
+
+// Empty period yields no distribution
+assertClose('empty period distributable', calculateDistribution([]).distributableBalance, 0);
+
+// Period closing snapshot freezes engine values; later live edits do not mutate it.
+const periodSnapshot = PeriodClosingService.buildSnapshot(mayH1, h1Txns, calculateDistribution(h1Txns));
+assertEqual('period closing periodKey', periodSnapshot.periodKey, '2026-05-H1');
+assertClose('period closing froze revenue', periodSnapshot.totalRevenue, 2000);
+const liveAfterEdit = calculateDistribution([...h1Txns, revenue({ date: '2026-05-10T12:00:00.000Z', grossRevenue: 5000 })]);
+assertClose('snapshot stays frozen after live edit', periodSnapshot.totalRevenue, 2000);
+assertClose('live recomputes after edit', liveAfterEdit.realizedRevenue, 7000);
+
+// PDF filename for period report
+assertEqual('period report filename H1', getPeriodReportFileName(mayH1), 'Onebridge-Period-Closing-2026-05-H1');
+assertEqual('period report filename H2', getPeriodReportFileName(mayH2), 'Onebridge-Period-Closing-2026-05-H2');
+
+const closedSnapshot = PeriodClosingService.buildSnapshot(mayH1, [revenue({ grossRevenue: 1000 })], paidRevenueOnly);
+assertEqual('period closing stores live engine total', closedSnapshot.distributableProfit, paidRevenueOnly.distributableBalance);
 
 const invoiceIssuedButUnpaid: InvoiceRecord = {
   id: 'inv-issued',
@@ -134,5 +207,23 @@ const invoiceIssuedButUnpaid: InvoiceRecord = {
 const invoicePaid: InvoiceRecord = { ...invoiceIssuedButUnpaid, id: 'inv-paid', invoiceNumber: 'OBS-2026-0002', status: 'paid' };
 assertEqual('issued invoice total matches linked transaction total', invoiceIssuedButUnpaid.total, 1000);
 assertEqual('paid invoice status is independent metadata', invoicePaid.status, 'paid');
+
+// --- Backup export/import round-trips period closings -------------------------
+// Runs in Node where the services fall back to in-memory storage.
+await PeriodClosingService.replaceAll([periodSnapshot]);
+const exportedJson = await LocalBackupService.exportAll();
+const exported = JSON.parse(exportedJson);
+assertEqual('backup version bumped to 2', exported.version, 2);
+assertEqual('backup includes period closings', Array.isArray(exported.periodClosings) ? exported.periodClosings.length : -1, 1);
+assertEqual('backup includes legacy monthly field', Array.isArray(exported.legacyMonthlyClosings), true);
+
+await PeriodClosingService.clearAll();
+assertEqual('period closings cleared before import', (await PeriodClosingService.fetchAll()).length, 0);
+
+await LocalBackupService.importAll(exportedJson);
+const restoredClosings = await PeriodClosingService.fetchAll();
+assertEqual('import restores period closings', restoredClosings.length, 1);
+assertEqual('restored period key', restoredClosings[0].periodKey, '2026-05-H1');
+assertClose('restored period revenue', restoredClosings[0].totalRevenue, 2000);
 
 console.log('Financial smoke tests passed.');

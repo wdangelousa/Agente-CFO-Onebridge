@@ -142,6 +142,36 @@ export interface MonthlyClosingSnapshot {
   updatedAt: string;
 }
 
+// Official closing is semi-monthly. MonthlyClosingSnapshot (above) is retained
+// only as a legacy management summary; new official closings use this shape.
+export interface PeriodClosingSnapshot {
+  id: string;
+  periodType: 'semi_monthly';
+  periodKey: string; // "2026-05-H1" | "2026-05-H2"
+  monthKey: string;  // "2026-05"
+  half: 'H1' | 'H2';
+  startDate: string; // "YYYY-MM-DD"
+  endDate: string;   // "YYYY-MM-DD"
+  label: string;     // "May 1–15, 2026"
+  closedAt: string;
+  totalRevenue: number;
+  totalCOGS: number;
+  totalOpEx: number;
+  externalCommissions: number;
+  originationFee: number;
+  reserve: number;
+  distributableProfit: number;
+  partnerDistributions: {
+    evandro: number;
+    juliaSamuel: number;
+    walter: number;
+  };
+  transactionIds: string[];
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface DistributionResult {
   realizedRevenue: number;
   totalCOGS: number;     // Custos Diretos (PAGOS)

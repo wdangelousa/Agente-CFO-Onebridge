@@ -2,7 +2,7 @@
 
 This document describes the financial rules currently implemented by the local-first MVP. It is an implementation reference, not final accounting, tax, legal, or operating agreement approval.
 
-The calculation source of truth is `utils/calculations.ts`. Dashboards, P&L views, distribution results, and monthly closings should use that engine so totals do not drift between screens.
+The calculation source of truth is `utils/calculations.ts`. Dashboards, P&L views, distribution results, and semi-monthly period closings should use that engine so totals do not drift between screens. Period boundaries are defined in `utils/periods.ts`.
 
 ## Revenue Recognition
 
@@ -97,11 +97,18 @@ Evandro and Julia/Samuel are rounded directly from their configured percentages.
 
 Negative months do not create positive partner distributions. The distributable base is floored at zero.
 
-## Monthly Closing Snapshots
+## Semi-Monthly Period Closing Snapshots
 
-Monthly closings save an official local snapshot of the selected month using the same distribution calculation engine as the live dashboard.
+The official financial closing is **semi-monthly (biweekly)**, not monthly:
 
-Saved closings preserve the calculated values and included transaction IDs at closing time. Editing transactions later can change the live monthly view, but it should not silently overwrite the saved official closing snapshot.
+- **First half (H1):** day 1 through day 15.
+- **Second half (H2):** day 16 through the last day of the month (leap-year aware).
+
+Period closings save an official local snapshot of the selected semi-monthly period using the same distribution calculation engine as the live dashboard. Official closing calculations filter transactions by transaction date between the period `startDate` and `endDate` (inclusive), not by whole month. Unpaid revenue is still excluded from cash distribution by the shared engine.
+
+Each snapshot is keyed by a period key such as `2026-05-H1` / `2026-05-H2` and stored under `onebridge_cfo_period_closings_v1`. Saved closings preserve the calculated values and included transaction IDs at closing time. Editing transactions later can change the live view, but it does not silently overwrite a saved official period closing snapshot.
+
+The monthly view is retained only as a **management summary** and is explicitly not the official closing. Legacy monthly closings (`onebridge_cfo_monthly_closings_v1`) from before this change are preserved and included in backups under `legacyMonthlyClosings`, but they are not used as official semi-monthly closings and are not migrated automatically (a monthly total cannot be reliably attributed to H1 vs H2).
 
 ## Invoice Impact
 

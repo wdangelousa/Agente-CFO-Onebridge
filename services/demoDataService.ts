@@ -3,7 +3,7 @@ import {
   ExpenseCategory,
   FinancialData,
   InvoiceRecord,
-  MonthlyClosingSnapshot,
+  PeriodClosingSnapshot,
   Partner,
   PaymentMethod,
   TransactionStatus,
@@ -11,9 +11,10 @@ import {
 } from '../types';
 import { calculateDistribution } from '../utils/calculations';
 import { createStoredDate } from '../utils/date';
+import { getSemiMonthlyPeriodsForMonth, isDateInPeriod } from '../utils/periods';
 import { TransactionService } from './transactionService';
 import { InvoiceService } from './invoiceService';
-import { MonthlyClosingService } from './monthlyClosingService';
+import { PeriodClosingService } from './periodClosingService';
 
 /**
  * Dev/manual-only demo data utility.
@@ -290,17 +291,21 @@ function buildInvoices(): { invoices: InvoiceRecord[]; sequence: Record<string, 
   return { invoices: [paidInvoice, issuedInvoice], sequence: { [year]: 2 } };
 }
 
-function buildClosingSnapshot(transactions: FinancialData[]): MonthlyClosingSnapshot {
-  const closedMonthKey = monthKey(CLOSED_MONTH);
-  const closedTransactions = transactions.filter((t) => t.competenceMonth === closedMonthKey);
-  const result = calculateDistribution(closedTransactions);
-  const snapshot = MonthlyClosingService.buildSnapshot(
-    closedMonthKey,
-    closedTransactions,
-    result,
-    'Fechamento oficial de demonstração (dados de teste).'
-  );
-  return { ...snapshot, id: `demo-closing-${closedMonthKey}` };
+// Both halves of the closed month are officially closed in the demo, so QA can
+// see semi-monthly period closings (H1 and H2) reconciling against live values.
+function buildPeriodClosings(transactions: FinancialData[]): PeriodClosingSnapshot[] {
+  const [h1, h2] = getSemiMonthlyPeriodsForMonth(CLOSED_MONTH.year, CLOSED_MONTH.month);
+  return [h1, h2].map((period) => {
+    const periodTransactions = transactions.filter((t) => isDateInPeriod(t.date, period));
+    const result = calculateDistribution(periodTransactions);
+    const snapshot = PeriodClosingService.buildSnapshot(
+      period,
+      periodTransactions,
+      result,
+      'Fechamento quinzenal de demonstração (dados de teste).'
+    );
+    return { ...snapshot, id: `demo-closing-${period.periodKey}` };
+  });
 }
 
 export class DemoDataService {
@@ -315,10 +320,10 @@ export class DemoDataService {
   static async seed(): Promise<void> {
     const transactions = buildTransactions();
     const { invoices, sequence } = buildInvoices();
-    const closing = buildClosingSnapshot(transactions);
+    const periodClosings = buildPeriodClosings(transactions);
 
     await TransactionService.replaceAll(transactions);
     await InvoiceService.replaceAll(invoices, sequence);
-    await MonthlyClosingService.replaceAll([closing]);
+    await PeriodClosingService.replaceAll(periodClosings);
   }
 }

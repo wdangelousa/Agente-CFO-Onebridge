@@ -1,9 +1,13 @@
 import { ConfigOptionsService } from './configOptionsService';
 import { InvoiceService } from './invoiceService';
 import { MonthlyClosingService } from './monthlyClosingService';
+import { PeriodClosingService } from './periodClosingService';
 import { TransactionService } from './transactionService';
 
-const BACKUP_VERSION = 1;
+// Bumped to 2 when official closing moved from monthly to semi-monthly.
+// periodClosings is the official closing data; legacyMonthlyClosings is
+// preserved for safety but is NOT used as official semi-monthly closing.
+const BACKUP_VERSION = 2;
 
 export interface LocalBackupPayload {
   app: 'onebridge-cfo';
@@ -11,9 +15,12 @@ export interface LocalBackupPayload {
   exportedAt: string;
   transactions: unknown[];
   configurableOptions: unknown[];
-  monthlyClosings: unknown[];
+  periodClosings: unknown[];
+  legacyMonthlyClosings: unknown[];
   invoices: unknown[];
   invoiceSequence: Record<string, number>;
+  // Deprecated alias kept for reading v1 backups on import.
+  monthlyClosings?: unknown[];
 }
 
 export class LocalBackupService {
@@ -24,7 +31,8 @@ export class LocalBackupService {
       exportedAt: new Date().toISOString(),
       transactions: await TransactionService.fetchAll(),
       configurableOptions: await ConfigOptionsService.getAllOptions(),
-      monthlyClosings: await MonthlyClosingService.fetchAll(),
+      periodClosings: await PeriodClosingService.fetchAll(),
+      legacyMonthlyClosings: await MonthlyClosingService.fetchAll(),
       invoices: await InvoiceService.fetchAll(),
       invoiceSequence: await InvoiceService.getSequence(),
     };
@@ -45,8 +53,20 @@ export class LocalBackupService {
       await ConfigOptionsService.importOptions(JSON.stringify(payload.configurableOptions));
     }
 
-    if (Array.isArray(payload.monthlyClosings)) {
-      await MonthlyClosingService.replaceAll(payload.monthlyClosings as any[]);
+    // Official semi-monthly closings.
+    if (Array.isArray(payload.periodClosings)) {
+      await PeriodClosingService.replaceAll(payload.periodClosings as any[]);
+    }
+
+    // Legacy monthly closings: preserved as-is. Restore from either the new
+    // legacyMonthlyClosings field or the deprecated v1 monthlyClosings field.
+    const legacyMonthly = Array.isArray(payload.legacyMonthlyClosings)
+      ? payload.legacyMonthlyClosings
+      : Array.isArray(payload.monthlyClosings)
+        ? payload.monthlyClosings
+        : null;
+    if (legacyMonthly) {
+      await MonthlyClosingService.replaceAll(legacyMonthly as any[]);
     }
 
     if (Array.isArray(payload.invoices)) {
@@ -56,6 +76,7 @@ export class LocalBackupService {
 
   static async resetAll(): Promise<void> {
     await TransactionService.clearAll();
+    await PeriodClosingService.clearAll();
     await MonthlyClosingService.clearAll();
     await InvoiceService.clearAll();
     await ConfigOptionsService.resetOptionsToDefaults();

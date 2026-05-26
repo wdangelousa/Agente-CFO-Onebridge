@@ -7,13 +7,15 @@ import { CfoAssistant } from './components/CfoAssistant';
 import { InvoiceModal } from './components/InvoiceModal';
 import { ReportModal } from './components/ReportModal';
 import { BatchProcessModal } from './components/BatchProcessModal';
-import { FinancialData, InvoiceRecord, MonthlyClosingSnapshot, Partner, TransactionType, PaymentMethod, ClientType, TransactionStatus, ExpenseCategory } from './types';
+import { FinancialData, InvoiceRecord, MonthlyClosingSnapshot, PeriodClosingSnapshot, Partner, TransactionType, PaymentMethod, ClientType, TransactionStatus, ExpenseCategory } from './types';
 import { calculateDistribution } from './utils/calculations';
-import { createStoredDate, formatDisplayDate, getDateMonthPart, getLocalMonthPart } from './utils/date';
+import { createStoredDate, formatDisplayDate, getDateMonthPart, getIsoDatePart, getLocalMonthPart } from './utils/date';
+import { PeriodHalf, getCurrentSemiMonthlyPeriod, getPeriodFromMonthAndHalf, getPreviousSemiMonthlyPeriod, getSemiMonthlyPeriodForDate, isDateInPeriod } from './utils/periods';
 import { Logo } from './components/Logo';
 import { Eraser, FilePlus2, FileBarChart, Calendar, ChevronLeft, ChevronRight, History, Zap, LayoutDashboard, PenLine, Bot, Activity, PieChart, LockKeyhole, Download, Upload, RotateCcw, FlaskConical } from 'lucide-react';
 import { TransactionService } from './services/transactionService';
 import { MonthlyClosingService } from './services/monthlyClosingService';
+import { PeriodClosingService } from './services/periodClosingService';
 import { LocalBackupService } from './services/localBackupService';
 import { InvoiceService } from './services/invoiceService';
 import { DemoDataService } from './services/demoDataService';
@@ -127,8 +129,13 @@ export default function App() {
 
   // App Data State
   const [refMonth, setRefMonth] = useState(initialPeriod.refMonth);
+  // Official closing is semi-monthly; this selects which half of refMonth is the
+  // official period in focus. Defaults to the half containing today.
+  const [selectedHalf, setSelectedHalf] = useState<PeriodHalf>(() => getCurrentSemiMonthlyPeriod().half);
   const [formData, setFormData] = useState<FinancialData>(() => createFormState(initialPeriod.refMonth));
   const [allTransactions, setAllTransactions] = useState<FinancialData[]>([]);
+  const [periodClosings, setPeriodClosings] = useState<PeriodClosingSnapshot[]>([]);
+  // Legacy monthly closings are preserved for reference only; not official.
   const [monthlyClosings, setMonthlyClosings] = useState<MonthlyClosingSnapshot[]>([]);
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const [loadingData, setLoadingData] = useState(false);
@@ -149,13 +156,15 @@ export default function App() {
     const loadLocalData = async () => {
       setLoadingData(true);
       try {
-        const [transactions, closings, localInvoices] = await Promise.all([
+        const [transactions, periods, legacyClosings, localInvoices] = await Promise.all([
           TransactionService.fetchAll(),
+          PeriodClosingService.fetchAll(),
           MonthlyClosingService.fetchAll(),
           InvoiceService.fetchAll(),
         ]);
         setAllTransactions(transactions);
-        setMonthlyClosings(closings);
+        setPeriodClosings(periods);
+        setMonthlyClosings(legacyClosings);
         setInvoices(localInvoices);
       } catch (error) {
         console.error("Failed to load local data", error);
@@ -216,20 +225,37 @@ export default function App() {
     }).length;
   }, [invoices, transactions]);
 
+  // Official semi-monthly period in focus (refMonth + selected half).
+  const currentPeriod = useMemo(
+    () => getPeriodFromMonthAndHalf(refMonth, selectedHalf),
+    [refMonth, selectedHalf]
+  );
+
+  // Official closing operates on transactions dated within the period only.
+  const periodTransactions = useMemo(
+    () => allTransactions.filter((t) => isDateInPeriod(t.date, currentPeriod)),
+    [allTransactions, currentPeriod]
+  );
+
+  const periodResult = useMemo(
+    () => calculateDistribution(periodTransactions),
+    [periodTransactions]
+  );
+
   const currentClosing = useMemo(() => {
-    return monthlyClosings.find((closing) => closing.month === refMonth) || null;
-  }, [monthlyClosings, refMonth]);
+    return periodClosings.find((closing) => closing.periodKey === currentPeriod.periodKey) || null;
+  }, [periodClosings, currentPeriod]);
 
   const closingDiffersFromLive = useMemo(() => {
     if (!currentClosing) return false;
-    return Math.abs(currentClosing.totalRevenue - result.realizedRevenue) > 0.01
-      || Math.abs(currentClosing.totalCOGS - result.totalCOGS) > 0.01
-      || Math.abs(currentClosing.totalOpEx - result.totalOpEx) > 0.01
-      || Math.abs(currentClosing.externalCommissions - result.externalCommissions) > 0.01
-      || Math.abs(currentClosing.originationFee - result.originationFee) > 0.01
-      || Math.abs(currentClosing.reserve - result.companyReserve) > 0.01
-      || Math.abs(currentClosing.distributableProfit - result.distributableBalance) > 0.01;
-  }, [currentClosing, result]);
+    return Math.abs(currentClosing.totalRevenue - periodResult.realizedRevenue) > 0.01
+      || Math.abs(currentClosing.totalCOGS - periodResult.totalCOGS) > 0.01
+      || Math.abs(currentClosing.totalOpEx - periodResult.totalOpEx) > 0.01
+      || Math.abs(currentClosing.externalCommissions - periodResult.externalCommissions) > 0.01
+      || Math.abs(currentClosing.originationFee - periodResult.originationFee) > 0.01
+      || Math.abs(currentClosing.reserve - periodResult.companyReserve) > 0.01
+      || Math.abs(currentClosing.distributableProfit - periodResult.distributableBalance) > 0.01;
+  }, [currentClosing, periodResult]);
 
   const availableMonths = useMemo(() => {
     const months = new Set<string>([INITIAL_REF_MONTH]);
@@ -237,10 +263,11 @@ export default function App() {
       const month = transaction.competenceMonth || getDateMonthPart(transaction.date);
       if (month) months.add(month);
     });
+    periodClosings.forEach((closing) => months.add(closing.monthKey));
     monthlyClosings.forEach((closing) => months.add(closing.month));
     months.add(refMonth);
     return Array.from(months).sort((a, b) => b.localeCompare(a));
-  }, [allTransactions, monthlyClosings, refMonth]);
+  }, [allTransactions, periodClosings, monthlyClosings, refMonth]);
 
   const handleAddTransaction = async (openInvoice: boolean = false) => {
     try {
@@ -296,10 +323,13 @@ export default function App() {
       if (targetMonth && targetMonth !== refMonth) {
         setRefMonth(targetMonth);
       }
-      if (targetMonth && monthlyClosings.some((closing) => closing.month === targetMonth)) {
+      // Focus the official period that contains the saved transaction's date.
+      const savedPeriod = getSemiMonthlyPeriodForDate(savedTransaction.date || getPeriodAnchorDate(targetMonth || refMonth));
+      setSelectedHalf(savedPeriod.half);
+      if (periodClosings.some((closing) => closing.periodKey === savedPeriod.periodKey)) {
         setSaveFeedback({
           kind: 'error',
-          message: 'Este mês possui um fechamento salvo. A visão ao vivo pode diferir do fechamento oficial.'
+          message: 'Esta quinzena possui um fechamento oficial salvo. A visão ao vivo pode diferir do fechamento.'
         });
       }
 
@@ -325,12 +355,14 @@ export default function App() {
 
   const handleEditTransaction = (transaction: FinancialData) => {
     setSaveFeedback(null);
-    const transactionMonth = transaction.competenceMonth || getDateMonthPart(transaction.date);
-    if (transactionMonth && monthlyClosings.some((closing) => closing.month === transactionMonth)) {
-      setSaveFeedback({
-        kind: 'error',
-        message: 'Este mês possui um fechamento salvo. Editar lançamentos pode criar diferença entre a visão ao vivo e o fechamento oficial.'
-      });
+    if (transaction.date) {
+      const transactionPeriod = getSemiMonthlyPeriodForDate(transaction.date);
+      if (periodClosings.some((closing) => closing.periodKey === transactionPeriod.periodKey)) {
+        setSaveFeedback({
+          kind: 'error',
+          message: 'Esta quinzena possui um fechamento oficial salvo. Editar lançamentos pode criar diferença entre a visão ao vivo e o fechamento.'
+        });
+      }
     }
     setFormData(transaction);
     setActiveTab('form');
@@ -401,19 +433,19 @@ export default function App() {
     return refMonth === getLocalMonthPart(now);
   }, [refMonth]);
 
-  const handleCloseMonth = async () => {
-    if (transactions.length === 0) {
-      alert('Não há lançamentos para fechar neste mês.');
+  const handleClosePeriod = async () => {
+    if (periodTransactions.length === 0) {
+      alert('Não há lançamentos nesta quinzena para fechar.');
       return;
     }
 
-    const existingText = currentClosing ? ' Isso substituirá o fechamento oficial existente para este mês.' : '';
-    if (!confirm(`Fechar ${periodLabel}?${existingText}`)) return;
+    const existingText = currentClosing ? ' Isso substituirá o fechamento oficial existente desta quinzena.' : '';
+    if (!confirm(`Fechar quinzena ${currentPeriod.label}?${existingText}`)) return;
 
     const notes = prompt('Notas opcionais do fechamento:', currentClosing?.notes || '') || undefined;
-    const closing = await MonthlyClosingService.closeMonth(refMonth, transactions, result, notes);
-    setMonthlyClosings(prev => [...prev.filter(item => item.month !== refMonth), closing]);
-    setSaveFeedback({ kind: 'success', message: `Fechamento oficial de ${periodLabel} salvo localmente.` });
+    const closing = await PeriodClosingService.closePeriod(currentPeriod, periodTransactions, periodResult, notes);
+    setPeriodClosings(prev => [...prev.filter(item => item.periodKey !== currentPeriod.periodKey), closing]);
+    setSaveFeedback({ kind: 'success', message: `Fechamento quinzenal oficial (${currentPeriod.label}) salvo localmente.` });
   };
 
   const handleExportAll = async () => {
@@ -437,13 +469,15 @@ export default function App() {
 
       try {
         await LocalBackupService.importAll(await file.text());
-        const [transactions, closings, localInvoices] = await Promise.all([
+        const [transactions, periods, legacyClosings, localInvoices] = await Promise.all([
           TransactionService.fetchAll(),
+          PeriodClosingService.fetchAll(),
           MonthlyClosingService.fetchAll(),
           InvoiceService.fetchAll(),
         ]);
         setAllTransactions(transactions);
-        setMonthlyClosings(closings);
+        setPeriodClosings(periods);
+        setMonthlyClosings(legacyClosings);
         setInvoices(localInvoices);
         setSaveFeedback({ kind: 'success', message: 'Backup importado com sucesso.' });
       } catch (error) {
@@ -459,6 +493,7 @@ export default function App() {
 
     await LocalBackupService.resetAll();
     setAllTransactions([]);
+    setPeriodClosings([]);
     setMonthlyClosings([]);
     setInvoices([]);
     setFormData(createFormState(refMonth, formData.type));
@@ -472,13 +507,15 @@ export default function App() {
 
     try {
       await DemoDataService.seed();
-      const [seededTransactions, closings, localInvoices] = await Promise.all([
+      const [seededTransactions, periods, legacyClosings, localInvoices] = await Promise.all([
         TransactionService.fetchAll(),
+        PeriodClosingService.fetchAll(),
         MonthlyClosingService.fetchAll(),
         InvoiceService.fetchAll(),
       ]);
       setAllTransactions(seededTransactions);
-      setMonthlyClosings(closings);
+      setPeriodClosings(periods);
+      setMonthlyClosings(legacyClosings);
       setInvoices(localInvoices);
       setRefMonth(DemoDataService.OPEN_MONTH_KEY);
       setFormData(createFormState(DemoDataService.OPEN_MONTH_KEY, formData.type));
@@ -598,7 +635,7 @@ export default function App() {
             <div className="border-b border-[#E7DED0] bg-[#102033] px-5 py-4 text-white">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-[#D8B98B]">Onebridge Monthly Command View</p>
+                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-[#D8B98B]">Resumo Gerencial Mensal · Não é fechamento oficial</p>
                   <h1 className="mt-1 text-xl font-black tracking-tight">{periodLabel}</h1>
                 </div>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -620,18 +657,47 @@ export default function App() {
               <div className="p-5">
                 <div className="flex items-center gap-2 text-sm font-black text-slate-900 uppercase">
                   {currentClosing ? <LockKeyhole className="w-4 h-4 text-[#B9824A]" /> : <Calendar className="w-4 h-4 text-slate-500" />}
-                  Fechamento mensal
+                  Fechamento Quinzenal (Oficial)
                 </div>
+
+                {/* Semi-monthly period selector */}
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <div className="flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+                    {(['H1', 'H2'] as PeriodHalf[]).map((half) => (
+                      <button
+                        key={half}
+                        onClick={() => setSelectedHalf(half)}
+                        className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${selectedHalf === half ? 'bg-[#102033] text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                      >
+                        {half === 'H1' ? '1ª Quinzena (1–15)' : '2ª Quinzena (16–fim)'}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => { const p = getCurrentSemiMonthlyPeriod(); setRefMonth(p.monthKey); setSelectedHalf(p.half); }}
+                    className="px-2.5 py-1 text-[10px] font-bold rounded-md border border-slate-200 text-slate-500 hover:text-slate-800 hover:border-slate-300 transition-colors"
+                  >
+                    Período atual
+                  </button>
+                  <button
+                    onClick={() => { const prev = getPreviousSemiMonthlyPeriod(currentPeriod); setRefMonth(prev.monthKey); setSelectedHalf(prev.half); }}
+                    className="px-2.5 py-1 text-[10px] font-bold rounded-md border border-slate-200 text-slate-500 hover:text-slate-800 hover:border-slate-300 transition-colors"
+                  >
+                    Período anterior
+                  </button>
+                </div>
+
+                <p className="mt-2 text-xs font-bold text-slate-700">{currentPeriod.label}</p>
                 <p className="mt-1 text-xs text-slate-500">
                   {currentClosing
                     ? `Fechado em ${formatDisplayDate(currentClosing.closedAt)}. Oficial: ${formatCurrency(currentClosing.distributableProfit)} distribuível.`
-                    : 'Este mês ainda não possui fechamento oficial salvo.'}
+                    : 'Esta quinzena ainda não possui fechamento oficial salvo.'}
                 </p>
                 {currentClosing && (
                   <div className="mt-3 grid grid-cols-2 gap-2 text-[10px] text-slate-600 lg:grid-cols-4">
-                    <span>Live receita: {formatCurrency(result.realizedRevenue)}</span>
+                    <span>Live receita: {formatCurrency(periodResult.realizedRevenue)}</span>
                     <span>Oficial receita: {formatCurrency(currentClosing.totalRevenue)}</span>
-                    <span>Live distrib.: {formatCurrency(result.distributableBalance)}</span>
+                    <span>Live distrib.: {formatCurrency(periodResult.distributableBalance)}</span>
                     <span>Oficial distrib.: {formatCurrency(currentClosing.distributableProfit)}</span>
                   </div>
                 )}
@@ -646,16 +712,16 @@ export default function App() {
               </div>
               <div className="px-5 pb-5 lg:pb-0">
                 <div className="mb-3 grid grid-cols-2 gap-2 text-[10px] text-slate-500">
-                  <span>Reserva: <b className="text-slate-900">{formatCurrency(result.companyReserve)}</b></span>
-                  <span>Payables: <b className="text-slate-900">{formatCurrency(result.pendingPayables)}</b></span>
+                  <span>Reserva: <b className="text-slate-900">{formatCurrency(periodResult.companyReserve)}</b></span>
+                  <span>Payables: <b className="text-slate-900">{formatCurrency(periodResult.pendingPayables)}</b></span>
                   <span>Invoices pendentes: <b className="text-slate-900">{pendingInvoicesCount}</b></span>
-                  <span>Transações: <b className="text-slate-900">{transactions.length}</b></span>
+                  <span>Transações (quinzena): <b className="text-slate-900">{periodTransactions.length}</b></span>
                 </div>
                 <button
-                  onClick={handleCloseMonth}
+                  onClick={handleClosePeriod}
                   className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#102033] px-4 py-2 text-xs font-bold text-white shadow-sm transition-colors hover:bg-[#071425] lg:w-auto"
                 >
-                  <LockKeyhole className="w-4 h-4 text-[#D8B98B]" /> Fechar mês
+                  <LockKeyhole className="w-4 h-4 text-[#D8B98B]" /> Fechar quinzena
                 </button>
               </div>
             </div>
@@ -794,11 +860,12 @@ export default function App() {
       />
       {isReportModalOpen && (
         <ReportModal
-          result={result}
+          result={periodResult}
           transactions={allTransactions}
-          closings={monthlyClosings}
+          periodClosings={periodClosings}
           onClose={() => setIsReportModalOpen(false)}
           initialMonth={refMonth}
+          initialHalf={selectedHalf}
           onPeriodChange={(month) => { setRefMonth(month); }}
         />
       )}
