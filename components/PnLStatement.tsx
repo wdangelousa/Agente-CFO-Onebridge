@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { FinancialData, TransactionType, ExpenseCategory, TransactionStatus } from '../types';
+import { FinancialData } from '../types';
+import { calculateProfitAndLoss } from '../utils/calculations';
 import { TrendingUp, TrendingDown, DollarSign, Activity, PieChart, AlertCircle, ToggleLeft, ToggleRight } from 'lucide-react';
 
 interface Props {
@@ -19,88 +20,33 @@ export const PnLStatement: React.FC<Props> = ({ transactions, periodLabel }) => 
    };
 
    const financials = useMemo(() => {
-      let grossRevenue = 0;
-      let cogs = 0;
-      let opex = 0;
-
-      // Grouping for detailed view
-      const expensesBreakdown: Record<string, number> = {};
-
-      transactions.forEach(t => {
-         // Logic Switch: Cash vs Accrual
-         const shouldCount = basis === 'accrual' ? true : t.status === TransactionStatus.PAID;
-
-         if (!shouldCount) return;
-
-         if (t.type === TransactionType.REVENUE) {
-            grossRevenue += (t.grossRevenue || 0);
-         } else if (t.type === TransactionType.EXPENSE) {
-            const amount = t.amount || 0;
-
-            if (t.category === ExpenseCategory.COGS) {
-               cogs += amount;
-            } else {
-               opex += amount;
-            }
-
-            // Breakdown logic
-            const desc = t.description || 'Outros';
-            expensesBreakdown[desc] = (expensesBreakdown[desc] || 0) + amount;
-         }
-
-         // --- LÓGICA DE COMISSIONAMENTO EXTERNO ---
-         // Se for RECEITA e tiver comissão externa, entra como COGS
-         if (t.type === TransactionType.REVENUE && t.externalCommission && t.externalCommission > 0) {
-            const comm = t.externalCommission;
-            cogs += comm;
-
-            const desc = t.externalCommissionDescription || 'Comissão Externa';
-            // Adiciona ao breakdown para visibilidade (opcional, pode ser agrupado)
-            expensesBreakdown[desc] = (expensesBreakdown[desc] || 0) + comm;
-         }
-      });
-
-      const grossProfit = grossRevenue - cogs;
-      const netIncome = grossProfit - opex;
-
-      const grossMargin = grossRevenue > 0 ? (grossProfit / grossRevenue) * 100 : 0;
-      const netMargin = grossRevenue > 0 ? (netIncome / grossRevenue) * 100 : 0;
-
-      return {
-         grossRevenue,
-         cogs,
-         grossProfit,
-         opex,
-         netIncome,
-         grossMargin,
-         netMargin,
-         expensesBreakdown
-      };
+      return calculateProfitAndLoss(transactions, basis);
    }, [transactions, basis]);
 
    const isProfitable = financials.netIncome >= 0;
 
    return (
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden h-full flex flex-col font-sans">
-         <div className="p-4 lg:p-6 bg-[#1A1C22] text-white border-b border-slate-800 flex justify-between items-start">
+      <div className="bg-white rounded-xl shadow-sm border border-[#D8B98B]/40 overflow-hidden h-full flex flex-col font-sans">
+         <div className="p-4 lg:p-6 bg-[#102033] text-white border-b border-[#D8B98B]/30 flex justify-between items-start">
             <div>
+               <p className="mb-2 text-[10px] font-black uppercase tracking-[0.22em] text-[#D8B98B]">Institutional P&L</p>
                <h2 className="text-base lg:text-lg font-bold flex items-center gap-2">
-                  <Activity className="w-5 h-5 text-[#D7FF3E]" />
+                  <Activity className="w-5 h-5 text-[#D8B98B]" />
                   Profit & Loss Statement
                </h2>
                <div className="flex items-center gap-3 mt-2">
                   <button
                      onClick={() => setBasis(basis === 'accrual' ? 'cash' : 'accrual')}
-                     className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest bg-[#1A1C22] hover:bg-black px-2 py-1 rounded transition-colors border border-slate-700"
+                     className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest bg-white/5 hover:bg-white/10 px-2 py-1 rounded transition-colors border border-white/10"
                   >
-                     {basis === 'accrual' ? <ToggleRight className="w-4 h-4 text-[#D7FF3E]" /> : <ToggleLeft className="w-4 h-4 text-slate-400" />}
+                     {basis === 'accrual' ? <ToggleRight className="w-4 h-4 text-[#D8B98B]" /> : <ToggleLeft className="w-4 h-4 text-slate-400" />}
                      {basis === 'accrual' ? 'Accrual (Competência)' : 'Cash (Caixa)'}
                   </button>
                </div>
             </div>
             <div className="text-right">
                <p className="text-[10px] uppercase font-bold text-slate-400 mb-0.5">Net Income</p>
-               <p className={`text-2xl font-black font-mono leading-none ${isProfitable ? 'text-[#D7FF3E]' : 'text-red-400'}`}>
+               <p className={`text-2xl font-black font-mono leading-none ${isProfitable ? 'text-white' : 'text-red-300'}`}>
                   {formatCurrency(financials.netIncome)}
                </p>
             </div>
@@ -110,7 +56,7 @@ export const PnLStatement: React.FC<Props> = ({ transactions, periodLabel }) => 
 
             {/* REVENUE SECTION */}
             <div>
-               <div className="flex justify-between items-end mb-2 border-b border-slate-100 pb-2">
+               <div className="flex justify-between items-end mb-2 border-b border-[#E7DED0] pb-2">
                   <h3 className="text-sm font-black text-[#1A1C22] uppercase tracking-wide">Revenue</h3>
                   <span className="text-sm font-bold text-[#1A1C22]">{formatCurrency(financials.grossRevenue)}</span>
                </div>
@@ -124,7 +70,7 @@ export const PnLStatement: React.FC<Props> = ({ transactions, periodLabel }) => 
 
             {/* COGS SECTION */}
             <div>
-               <div className="flex justify-between items-end mb-2 border-b border-slate-100 pb-2">
+               <div className="flex justify-between items-end mb-2 border-b border-[#E7DED0] pb-2">
                   <h3 className="text-sm font-black text-[#1A1C22] uppercase tracking-wide">Cost of Goods Sold (COGS)</h3>
                   <span className="text-sm font-bold text-red-600">({formatCurrency(financials.cogs)})</span>
                </div>
@@ -137,7 +83,7 @@ export const PnLStatement: React.FC<Props> = ({ transactions, periodLabel }) => 
             </div>
 
             {/* GROSS PROFIT LINE */}
-            <div className="bg-[#F8F9FA] p-3 rounded-lg border border-slate-200 flex justify-between items-center">
+            <div className="bg-[#FBF8F2] p-3 rounded-lg border border-[#D8B98B]/50 flex justify-between items-center">
                <div>
                   <p className="text-xs font-black text-[#6C757D] uppercase">Gross Profit</p>
                   <p className="text-[10px] text-slate-400">Revenue - COGS</p>
@@ -150,7 +96,7 @@ export const PnLStatement: React.FC<Props> = ({ transactions, periodLabel }) => 
 
             {/* OPEX SECTION */}
             <div>
-               <div className="flex justify-between items-end mb-2 border-b border-slate-100 pb-2">
+               <div className="flex justify-between items-end mb-2 border-b border-[#E7DED0] pb-2">
                   <h3 className="text-sm font-black text-[#1A1C22] uppercase tracking-wide">Operating Expenses (OpEx)</h3>
                   <span className="text-sm font-bold text-red-600">({formatCurrency(financials.opex)})</span>
                </div>
@@ -159,9 +105,7 @@ export const PnLStatement: React.FC<Props> = ({ transactions, periodLabel }) => 
                      <p className="text-[10px] text-slate-300 italic">No operating expenses recorded.</p>
                   ) : (
                      // Only show simplified OpEx total or top categories to keep it clean, or map breakdown
-                     Object.entries(financials.expensesBreakdown).map(([desc, val], idx) => {
-                        // Filter only OpEx conceptually (approximation since we grouped all expenses in breakdown)
-                        // Ideally we would filter by category in the map, but for display simplicity:
+                     Object.entries(financials.opexBreakdown).map(([desc, val], idx) => {
                         if ((val as number) > 0) return (
                            <div key={idx} className="flex justify-between text-xs text-[#6C757D]">
                               <span className="truncate pr-4">{desc}</span>
@@ -171,16 +115,16 @@ export const PnLStatement: React.FC<Props> = ({ transactions, periodLabel }) => 
                         return null;
                      }).slice(0, 5) // Show top 5 for brevity
                   )}
-                  {Object.keys(financials.expensesBreakdown).length > 5 && (
+                  {Object.keys(financials.opexBreakdown).length > 5 && (
                      <p className="text-[9px] text-slate-400 italic text-right mt-1">...and others</p>
                   )}
                </div>
             </div>
 
             {/* NET INCOME LINE */}
-            <div className={`p-4 rounded-xl border-2 ${isProfitable ? 'bg-[#D7FF3E]/10 border-[#D7FF3E]' : 'bg-red-50 border-red-100'} flex justify-between items-center`}>
+            <div className={`p-4 rounded-xl border-2 ${isProfitable ? 'bg-[#FBF8F2] border-[#D8B98B]' : 'bg-red-50 border-red-100'} flex justify-between items-center`}>
                <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-full ${isProfitable ? 'bg-[#D7FF3E] text-[#1A1C22]' : 'bg-red-200 text-red-700'}`}>
+                  <div className={`p-2 rounded-full ${isProfitable ? 'bg-[#102033] text-[#D8B98B]' : 'bg-red-200 text-red-700'}`}>
                      <DollarSign className="w-5 h-5" />
                   </div>
                   <div>

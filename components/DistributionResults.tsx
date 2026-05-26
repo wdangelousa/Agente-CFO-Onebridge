@@ -24,22 +24,23 @@ export const DistributionResults: React.FC<Props> = ({ result, onGenerateReport,
   ];
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden h-full flex flex-col">
-      <div className="p-4 lg:p-6 bg-[#F8F9FA] border-b border-slate-200 flex justify-between items-start">
+    <div className="bg-white rounded-xl shadow-sm border border-[#D8B98B]/40 overflow-hidden h-full flex flex-col">
+      <div className="p-4 lg:p-6 bg-[#102033] border-b border-[#D8B98B]/30 flex justify-between items-start text-white">
         <div>
-          <h2 className="text-base lg:text-lg font-bold text-[#1A1C22] flex items-center gap-2">
-            <Wallet className="w-4 h-4 lg:w-5 lg:h-5 text-[#1A1C22]" />
+          <p className="mb-2 text-[10px] font-black uppercase tracking-[0.22em] text-[#D8B98B]">Executive Cash Waterfall</p>
+          <h2 className="text-base lg:text-lg font-bold flex items-center gap-2">
+            <Wallet className="w-4 h-4 lg:w-5 lg:h-5 text-[#D8B98B]" />
             Caixa Disponível
           </h2>
-          <div className="flex items-center gap-2 mt-1.5 px-2 py-1 bg-white text-[#6C757D] rounded-md border border-slate-200 w-fit">
-             <Calendar className="w-3 h-3 lg:w-3.5 lg:h-3.5 text-[#1A1C22]" />
+          <div className="flex items-center gap-2 mt-2 px-2 py-1 bg-white/10 text-slate-200 rounded-md border border-white/10 w-fit">
+             <Calendar className="w-3 h-3 lg:w-3.5 lg:h-3.5 text-[#D8B98B]" />
              <span className="text-[10px] lg:text-xs font-bold uppercase tracking-tight truncate max-w-[150px] lg:max-w-none">{periodLabel}</span>
           </div>
         </div>
         <div className="flex flex-col items-end gap-2">
           <div className="text-right">
             <p className="text-[10px] uppercase font-black text-slate-400 mb-0.5">Saldo Realizado (Cash Basis)</p>
-            <p className={`text-xl lg:text-2xl font-black font-mono leading-none ${isLiquidityRisk ? 'text-red-600' : 'text-[#1A1C22]'}`}>
+            <p className={`text-xl lg:text-2xl font-black font-mono leading-none ${isLiquidityRisk ? 'text-red-300' : 'text-white'}`}>
               {formatCurrency(result.safetyMargin)}
             </p>
           </div>
@@ -67,11 +68,26 @@ export const DistributionResults: React.FC<Props> = ({ result, onGenerateReport,
       <div className="p-4 lg:p-6 flex-grow flex flex-col gap-6 overflow-y-auto">
         
         {/* Waterfall Breakdown */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="rounded-lg border border-[#E7DED0] bg-[#FBF8F2] p-4">
+            <p className="text-[10px] font-black uppercase tracking-wide text-[#7A4E24]">Gross Profit</p>
+            <p className="mt-2 font-mono text-xl font-black text-[#102033]">{formatCurrency(result.grossMargin)}</p>
+          </div>
+          <div className="rounded-lg border border-[#E7DED0] bg-white p-4">
+            <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">Reserve</p>
+            <p className="mt-2 font-mono text-xl font-black text-[#102033]">{formatCurrency(result.companyReserve)}</p>
+          </div>
+          <div className="rounded-lg border border-[#E7DED0] bg-white p-4">
+            <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">Distributable</p>
+            <p className="mt-2 font-mono text-xl font-black text-[#102033]">{formatCurrency(result.distributableBalance)}</p>
+          </div>
+        </div>
+
         <div className="space-y-2">
            {/* Revenue */}
-           <div className="flex justify-between items-center p-3 bg-[#D7FF3E]/10 rounded-lg border border-[#D7FF3E]/30">
+           <div className="flex justify-between items-center p-3 bg-[#FBF8F2] rounded-lg border border-[#D8B98B]/50">
              <div className="flex items-center gap-2 text-[#1A1C22] font-bold text-xs uppercase">
-               <TrendingUp className="w-4 h-4" /> Receita Realizada (Paga)
+               <TrendingUp className="w-4 h-4 text-[#B9824A]" /> Receita Realizada (Paga)
              </div>
              <span className="font-bold font-mono text-[#1A1C22]">{formatCurrency(result.realizedRevenue)}</span>
            </div>
@@ -97,7 +113,7 @@ export const DistributionResults: React.FC<Props> = ({ result, onGenerateReport,
         <div className="space-y-4">
           <div className="flex justify-between items-center py-2 border-b border-slate-100">
             <div className="flex items-center gap-2 text-[#6C757D]">
-              <ShieldCheck className="w-4 h-4 text-slate-400" />
+              <ShieldCheck className="w-4 h-4 text-[#B9824A]" />
               <span className="text-xs font-bold uppercase">Reserva (12%)</span>
             </div>
             <span className="font-mono font-bold text-[#1A1C22]">{formatCurrency(result.companyReserve)}</span>
@@ -105,7 +121,7 @@ export const DistributionResults: React.FC<Props> = ({ result, onGenerateReport,
 
           <div className="flex justify-between items-center py-2 border-b border-slate-100">
              <div className="flex items-center gap-2 text-[#6C757D]">
-              <Users className="w-4 h-4 text-slate-400" />
+              <Users className="w-4 h-4 text-[#B9824A]" />
               <div className="flex flex-col">
                  <span className="text-xs font-bold uppercase">Taxa de Originação (10%)</span>
                  <span className="text-[9px] text-slate-400">Sobre Receita Realizada</span>

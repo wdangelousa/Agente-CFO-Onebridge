@@ -1,25 +1,46 @@
 
-# OneBridge CFO Virtual - Python Engine
+# OneBridge CFO Virtual
 
-Este repositório contém o motor financeiro da **OneBridge Stalwart LLC**, desenvolvido para automação de cálculos de distribuição de lucros (Waterfall) e análise estratégica via IA.
+Este repositório contém o MVP local-first do CFO da **OneBridge Stalwart LLC**, desenvolvido para registrar lançamentos financeiros, acompanhar meses, emitir invoices locais e preservar fechamentos mensais.
+
+## Local-first MVP
+
+O app roda localmente no navegador e salva os dados em `localStorage`. Ele não exige Supabase, login, banco remoto, migrations, RLS, SQL Editor ou credenciais administrativas para o MVP atual.
+
+Use o recurso de exportação/importação de backup para preservar o histórico financeiro. Se os dados do navegador forem apagados, os registros locais também podem ser apagados.
+
+Chaves locais usadas pelo app:
+
+- `onebridge_cfo_transactions_v1`
+- `onebridge_cfo_configurable_options_v1`
+- `onebridge_cfo_monthly_closings_v1`
+- `onebridge_cfo_invoices_v1`
+- `onebridge_cfo_invoice_sequence_v1`
+
+Recomendação operacional: exporte backups JSON regularmente, especialmente após fechar um mês ou emitir invoices.
+
+As regras financeiras atuais do MVP estão documentadas em [docs/FINANCIAL_RULES.md](docs/FINANCIAL_RULES.md), incluindo os pontos que ainda exigem aprovação formal de negócio.
 
 ## Funcionalidades
 - **Cálculo Automático**: Distribuição conforme Operating Agreement.
 - **Taxas de Originação**: 10% para o sócio originador.
 - **Reserva de Capital**: Retenção automática de 12%.
-- **Análise Gemini**: Geração de parecer executivo usando `gemini-3-flash-preview`.
+- **Histórico Mensal Local**: Transações e fechamentos salvos por mês.
+- **Invoices Locais**: Numeração e status persistidos no navegador.
+- **Backup JSON**: Exportação/importação de transações, opções, fechamentos e invoices.
 
 ## Como usar
 1. Clone o repositório.
-2. Crie um arquivo `.env` com sua `API_KEY`.
-3. Instale as dependências:
+2. Instale as dependências:
    ```bash
-   pip install -r requirements.txt
+   npm install
    ```
-4. Execute o motor:
+3. Execute o app:
    ```bash
-   python main.py
+   npm run dev
    ```
+
+Variáveis de ambiente de IA/Gemini são opcionais para o MVP financeiro local-first. O app deve abrir e operar sem Supabase.
 
 ## Estrutura da Distribuição
 - **Evandro (Profiscal)**: 33.34%

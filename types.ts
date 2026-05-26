@@ -27,6 +27,8 @@ export enum PaymentMethod {
   PARCELADO_USA = 'ParceladoUSA'
 }
 
+export type InvoiceStatus = 'draft' | 'issued' | 'paid' | 'cancelled';
+
 export enum ClientType {
   INDIVIDUAL = 'Pessoa Física',
   COMPANY = 'Pessoa Jurídica'
@@ -42,6 +44,9 @@ export interface FinancialAttachment {
 export interface FinancialData {
   id?: string;
   date?: string;
+  competenceMonth?: string;
+  createdAt?: string;
+  updatedAt?: string;
   type: TransactionType;
   status: TransactionStatus;
   description: string; // Nome do Cliente (Receita) ou Descrição (Despesa)
@@ -67,11 +72,11 @@ export interface FinancialData {
   externalCommissionDescription?: string; // Quem recebe ou motivo (Ex: "Parceiro João")
 
   // Originador (Para Receita = Quem vendeu. Para Despesa COGS = De quem é o cliente)
-  originator: Partner;
+  originator: string;
 
   // Reembolso
   isReimbursable?: boolean;
-  reimbursementBeneficiary?: Partner;
+  reimbursementBeneficiary?: string;
 
   // Anexos (Legacy e Novo Suporte Múltiplo)
   attachmentUrl?: string; // Mantido para compatibilidade
@@ -80,6 +85,7 @@ export interface FinancialData {
   // Status de Automação
   issuedAt?: string;
   invoiceNumber?: string;
+  invoiceId?: string;
 
   // Commission Logic Meta
   commissionType?: 'fixed' | 'percentage';
@@ -96,6 +102,46 @@ export interface FinancialData {
   exchangeSource?: string; 
 }
 
+export interface InvoiceRecord {
+  id: string;
+  invoiceNumber: string;
+  status: InvoiceStatus;
+  issuedAt?: string;
+  dueDate?: string;
+  transactionIds: string[];
+  payerName: string;
+  clientName: string;
+  description: string;
+  subtotal: number;
+  total: number;
+  currency: 'USD' | 'BRL';
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MonthlyClosingSnapshot {
+  id: string;
+  month: string;
+  closedAt: string;
+  totalRevenue: number;
+  totalCOGS: number;
+  totalOpEx: number;
+  externalCommissions: number;
+  originationFee: number;
+  reserve: number;
+  distributableProfit: number;
+  partnerDistributions: {
+    evandro: number;
+    juliaSamuel: number;
+    walter: number;
+  };
+  transactionIds: string[];
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface DistributionResult {
   realizedRevenue: number;
   totalCOGS: number;     // Custos Diretos (PAGOS)
@@ -108,6 +154,7 @@ export interface DistributionResult {
   pendingPayables: number; // Apenas saídas pendentes (Future Liability)
 
   grossTotalBookkeeping: number; 
+  externalCommissions: number;
   
   originationFee: number; // Total Global
   
@@ -144,9 +191,14 @@ export const SHARES = {
   WALTER: 0.3333
 };
 
+export const PARTNER_DISTRIBUTION_RATES = SHARES;
+
 export const RATES = {
   ORIGINATION: 0.10,
   RESERVE: 0.12,
   DISTRIBUTION: 0.78,
   FX_SAFETY_SPREAD: 0.02
 };
+
+export const ORIGINATION_RATE = RATES.ORIGINATION;
+export const RESERVE_RATE = RATES.RESERVE;

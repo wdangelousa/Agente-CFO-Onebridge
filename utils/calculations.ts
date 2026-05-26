@@ -1,177 +1,247 @@
+import {
+  FinancialData,
+  DistributionResult,
+  Partner,
+  PARTNER_DISTRIBUTION_RATES,
+  RATES,
+  ORIGINATION_RATE,
+  RESERVE_RATE,
+  TransactionType,
+  TransactionStatus,
+  ExpenseCategory,
+} from '../types.ts';
 
-import { FinancialData, DistributionResult, Partner, SHARES, RATES, TransactionType, TransactionStatus, ExpenseCategory } from '../types';
+export type AccountingBasis = 'cash' | 'accrual';
 
-export const calculateDistribution = (transactions: FinancialData[]): DistributionResult => {
-  // 1. Buckets Globais
-  let realizedRevenue = 0;       // Cash In (Status: PAID)
-  let totalCOGS = 0;             // Cost of Goods Sold (PAID ONLY)
-  let totalOpEx = 0;             // Operational Expenses (PAID ONLY)
-  let provisionedFlow = 0;       // Total Liability (PAID + PENDING)
-  let grossTotalBookkeeping = 0; // Accrual Revenue (Invoiced/Total)
+export interface ProfitAndLossResult {
+  grossRevenue: number;
+  cogs: number;
+  grossProfit: number;
+  opex: number;
+  netIncome: number;
+  grossMargin: number;
+  netMargin: number;
+  externalCommissions: number;
+  expensesBreakdown: Record<string, number>;
+  cogsBreakdown: Record<string, number>;
+  opexBreakdown: Record<string, number>;
+}
 
-  // 2. Buckets por Sócio (Para Originação Líquida)
-  // Estrutura: { [Partner]: { revenue: 0, cogs: 0 } }
-  let partnerPerformance = {
-    [Partner.EVANDRO]: { revenue: 0, cogs: 0 },
-    [Partner.JULIA_SAMUEL]: { revenue: 0, cogs: 0 },
-    [Partner.WALTER]: { revenue: 0, cogs: 0 },
-    [Partner.NONE]: { revenue: 0, cogs: 0 }
-  };
+const PARTNER_KEYS = [Partner.EVANDRO, Partner.JULIA_SAMUEL, Partner.WALTER] as const;
 
-  // 3. Reembolsos
-  let reimbursementByPartner: Record<string, number> = {
-    [Partner.EVANDRO]: 0,
-    [Partner.JULIA_SAMUEL]: 0,
-    [Partner.WALTER]: 0,
-    [Partner.NONE]: 0
-  };
+export const roundCurrency = (value: number): number => {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+};
 
-  transactions.forEach(t => {
-    // --- LÓGICA DE DESPESA (OUTFLOW) ---
-    if (t.type === TransactionType.EXPENSE) {
-      let amountUSD = t.amount || 0; // QA Fix: Ensure not undefined
+const shouldCountForBasis = (transaction: FinancialData, basis: AccountingBasis): boolean => {
+  return basis === 'accrual' || transaction.status === TransactionStatus.PAID;
+};
 
-      // Safety Spread para FX (Mantido, mas assume-se que amount já foi convertido pelo Form)
-      if (t.currency === 'BRL') {
-        amountUSD = amountUSD * (1 + RATES.FX_SAFETY_SPREAD);
-      }
+const normalizedExpenseAmount = (transaction: FinancialData): number => {
+  const amount = Number(transaction.amount) || 0;
 
-      // 1. Provisioned Flow: Soma TUDO (Pago ou Pendente) para visão de passivo total
-      provisionedFlow += amountUSD;
+  if (transaction.currency === 'BRL') {
+    return amount * (1 + RATES.FX_SAFETY_SPREAD);
+  }
 
-      // 2. Cálculo de Caixa (Cash Basis): Só abate do resultado se estiver PAGO
-      if (t.status === TransactionStatus.PAID) {
-        if (t.category === ExpenseCategory.COGS) {
-          totalCOGS += amountUSD;
-          // Mantemos o registro de quem originou o custo para relatórios
-          if (t.originator) {
-            partnerPerformance[t.originator].cogs += amountUSD;
-          }
-        } else {
-          totalOpEx += amountUSD;
-        }
+  return amount;
+};
 
-        // Reembolso: Só conta se a despesa foi efetivamente PAGA pelo sócio
-        if (t.isReimbursable && t.reimbursementBeneficiary && t.reimbursementBeneficiary !== Partner.NONE) {
-          // Safe access
-          if (typeof reimbursementByPartner[t.reimbursementBeneficiary] === 'number') {
-            reimbursementByPartner[t.reimbursementBeneficiary] += amountUSD;
-          }
-        }
-      }
-    }
+const normalizedRevenueAmount = (transaction: FinancialData): number => {
+  return Number(transaction.grossRevenue) || 0;
+};
 
-    // --- LÓGICA DE RECEITA (INFLOW) ---
-    if (t.type === TransactionType.REVENUE) {
-      const gross = t.grossRevenue || 0; // QA Fix: Ensure not undefined
-      grossTotalBookkeeping += gross;
+const addBreakdown = (breakdown: Record<string, number>, label: string, amount: number) => {
+  breakdown[label] = roundCurrency((breakdown[label] || 0) + amount);
+};
 
-      if (t.status === TransactionStatus.PAID) {
-        realizedRevenue += gross;
+export const calculateProfitAndLoss = (
+  transactions: FinancialData[],
+  basis: AccountingBasis = 'cash'
+): ProfitAndLossResult => {
+  let grossRevenue = 0;
+  let cogs = 0;
+  let opex = 0;
+  let externalCommissions = 0;
+  const cogsBreakdown: Record<string, number> = {};
+  const opexBreakdown: Record<string, number> = {};
 
-        // Atribui receita ao originador
-        if (t.originator) {
-          partnerPerformance[t.originator].revenue += gross;
-        }
+  transactions.forEach((transaction) => {
+    if (!shouldCountForBasis(transaction, basis)) return;
 
-        // --- LÓGICA DE COMISSIONAMENTO EXTERNO (Treat as COGS) ---
-        // Se houver comissão externa definida na receita, ela entra como custo direto (COGS)
-        // Isso reduz a margem bruta global.
-        if (t.externalCommission && t.externalCommission > 0) {
-          const comm = t.externalCommission;
-          totalCOGS += comm;
-          // Opcional: Se quisermos rastrear quem "originou" esse custo (o parceiro da receita), podemos somar no bucket dele
-          if (t.originator) {
-            partnerPerformance[t.originator].cogs += comm;
-          }
-        }
+    if (transaction.type === TransactionType.REVENUE) {
+      const revenue = normalizedRevenueAmount(transaction);
+      grossRevenue += revenue;
+
+      const commission = Number(transaction.externalCommission) || 0;
+      if (commission > 0) {
+        externalCommissions += commission;
+        cogs += commission;
+        addBreakdown(cogsBreakdown, transaction.externalCommissionDescription || 'Comissão Externa', commission);
       }
     }
-  });
 
-  // 4. Cálculos Derivados (Cash Basis)
-  const grossMargin = realizedRevenue - totalCOGS; // Margem de Contribuição Global (Realizada)
-  const netIncome = grossMargin - totalOpEx;       // Lucro Líquido Contábil (Realizado)
+    if (transaction.type === TransactionType.EXPENSE) {
+      const amount = normalizedExpenseAmount(transaction);
+      const label = transaction.description || 'Outros';
 
-  // Safety Margin (Caixa Disponível) = Receita Realizada - Despesas Pagas
-  // Note: provisionedFlow tem tudo, então não usamos ele aqui para o Caixa Imediato
-  const safetyMargin = netIncome;
-
-  // Passivo Pendente (Contas a Pagar Futuras)
-  const pendingPayables = provisionedFlow - (totalCOGS + totalOpEx);
-
-  // 5. Cálculo de Originação (ATUALIZADO: Sobre Receita Bruta REALIZADA)
-  // Regra nova: Fee = Revenue Realizada * 10%
-  let totalOriginationFee = 0;
-  const originationFees = {
-    [Partner.EVANDRO]: 0,
-    [Partner.JULIA_SAMUEL]: 0,
-    [Partner.WALTER]: 0,
-    [Partner.NONE]: 0
-  };
-
-  Object.values(Partner).forEach(p => {
-    if (p !== Partner.NONE) {
-      // Fee calculada puramente sobre o volume de vendas REALIZADO
-      const fee = partnerPerformance[p].revenue * RATES.ORIGINATION;
-      originationFees[p] = fee;
-      totalOriginationFee += fee;
+      if (transaction.category === ExpenseCategory.COGS) {
+        cogs += amount;
+        addBreakdown(cogsBreakdown, label, amount);
+      } else {
+        opex += amount;
+        addBreakdown(opexBreakdown, label, amount);
+      }
     }
   });
 
-  // 6. Base de Distribuição
-  // A base é o Caixa Livre (Safety Margin) menos as comissões que precisam ser pagas
-  const distributableBase = Math.max(0, safetyMargin - totalOriginationFee);
+  grossRevenue = roundCurrency(grossRevenue);
+  cogs = roundCurrency(cogs);
+  opex = roundCurrency(opex);
+  externalCommissions = roundCurrency(externalCommissions);
 
-  // 7. Reserva
-  const companyReserve = distributableBase * RATES.RESERVE;
-
-  // 8. Saldo Final para Dividendo
-  const finalDistributable = Math.max(0, distributableBase - companyReserve);
-
-  // 9. Quotas
-  const shareEvandro = finalDistributable * SHARES.EVANDRO;
-  const shareJulia = finalDistributable * SHARES.JULIA_SAMUEL;
-  const shareWalter = finalDistributable * SHARES.WALTER;
+  const grossProfit = roundCurrency(grossRevenue - cogs);
+  const netIncome = roundCurrency(grossProfit - opex);
+  const grossMargin = grossRevenue > 0 ? roundCurrency((grossProfit / grossRevenue) * 100) : 0;
+  const netMargin = grossRevenue > 0 ? roundCurrency((netIncome / grossRevenue) * 100) : 0;
 
   return {
-    realizedRevenue,
-    totalCOGS,
-    grossMargin,
-    totalOpEx,
+    grossRevenue,
+    cogs,
+    grossProfit,
+    opex,
     netIncome,
-    safetyMargin,
-    provisionedFlow,
+    grossMargin,
+    netMargin,
+    externalCommissions,
+    expensesBreakdown: { ...cogsBreakdown, ...opexBreakdown },
+    cogsBreakdown,
+    opexBreakdown,
+  };
+};
+
+// Preserved MVP rule: origination is 10% of paid gross revenue by fixed partner.
+// Business approval is still required; the formula is isolated for future change.
+const calculateOriginationFees = (partnerRevenue: Record<string, number>) => {
+  const fees = {
+    [Partner.EVANDRO]: 0,
+    [Partner.JULIA_SAMUEL]: 0,
+    [Partner.WALTER]: 0,
+    [Partner.NONE]: 0,
+  };
+
+  PARTNER_KEYS.forEach((partner) => {
+    fees[partner] = roundCurrency((partnerRevenue[partner] || 0) * ORIGINATION_RATE);
+  });
+
+  return fees;
+};
+
+const calculatePartnerShares = (finalDistributable: number) => {
+  const evandro = roundCurrency(finalDistributable * PARTNER_DISTRIBUTION_RATES.EVANDRO);
+  const juliaSamuel = roundCurrency(finalDistributable * PARTNER_DISTRIBUTION_RATES.JULIA_SAMUEL);
+  const walter = roundCurrency(finalDistributable - evandro - juliaSamuel);
+
+  return {
+    evandro,
+    juliaSamuel,
+    walter,
+  };
+};
+
+export const calculateDistribution = (transactions: FinancialData[]): DistributionResult => {
+  const cashPnL = calculateProfitAndLoss(transactions, 'cash');
+  let provisionedFlow = 0;
+  let grossTotalBookkeeping = 0;
+
+  const partnerRevenue: Record<string, number> = {
+    [Partner.EVANDRO]: 0,
+    [Partner.JULIA_SAMUEL]: 0,
+    [Partner.WALTER]: 0,
+    [Partner.NONE]: 0,
+  };
+
+  const reimbursementByPartner: Record<string, number> = {
+    [Partner.EVANDRO]: 0,
+    [Partner.JULIA_SAMUEL]: 0,
+    [Partner.WALTER]: 0,
+    [Partner.NONE]: 0,
+  };
+
+  transactions.forEach((transaction) => {
+    if (transaction.type === TransactionType.REVENUE) {
+      const gross = normalizedRevenueAmount(transaction);
+      grossTotalBookkeeping += gross;
+
+      if (transaction.status === TransactionStatus.PAID && transaction.originator && partnerRevenue[transaction.originator] !== undefined) {
+        partnerRevenue[transaction.originator] += gross;
+      }
+    }
+
+    if (transaction.type === TransactionType.EXPENSE) {
+      const amount = normalizedExpenseAmount(transaction);
+      provisionedFlow += amount;
+
+      if (
+        transaction.status === TransactionStatus.PAID &&
+        transaction.isReimbursable &&
+        transaction.reimbursementBeneficiary &&
+        transaction.reimbursementBeneficiary !== Partner.NONE &&
+        reimbursementByPartner[transaction.reimbursementBeneficiary] !== undefined
+      ) {
+        reimbursementByPartner[transaction.reimbursementBeneficiary] += amount;
+      }
+    }
+  });
+
+  const originationFees = calculateOriginationFees(partnerRevenue);
+  const originationFee = roundCurrency(PARTNER_KEYS.reduce((sum, partner) => sum + originationFees[partner], 0));
+  const distributableBase = roundCurrency(Math.max(0, cashPnL.netIncome - originationFee));
+
+  // Preserved MVP rule: reserve is 12% of cash net income after origination.
+  // Business approval is still required; this line is the single reserve formula.
+  const companyReserve = roundCurrency(distributableBase * RESERVE_RATE);
+
+  const distributableBalance = roundCurrency(Math.max(0, distributableBase - companyReserve));
+  const partnerShares = calculatePartnerShares(distributableBalance);
+
+  const paidOutflows = roundCurrency(cashPnL.cogs + cashPnL.opex);
+  const pendingPayables = roundCurrency(Math.max(0, provisionedFlow - paidOutflows));
+
+  return {
+    realizedRevenue: cashPnL.grossRevenue,
+    totalCOGS: cashPnL.cogs,
+    grossMargin: cashPnL.grossProfit,
+    totalOpEx: cashPnL.opex,
+    netIncome: cashPnL.netIncome,
+    safetyMargin: cashPnL.netIncome,
+    provisionedFlow: roundCurrency(provisionedFlow),
     pendingPayables,
-    grossTotalBookkeeping,
+    grossTotalBookkeeping: roundCurrency(grossTotalBookkeeping),
+    externalCommissions: cashPnL.externalCommissions,
 
-    originationFee: totalOriginationFee,
+    originationFee,
 
-    // Novo Objeto de Retorno Detalhado
     originationFees: {
       evandro: originationFees[Partner.EVANDRO],
       juliaSamuel: originationFees[Partner.JULIA_SAMUEL],
-      walter: originationFees[Partner.WALTER]
+      walter: originationFees[Partner.WALTER],
     },
 
     companyReserve,
-    distributableBalance: finalDistributable,
+    distributableBalance,
 
-    partnerShares: {
-      evandro: shareEvandro,
-      juliaSamuel: shareJulia,
-      walter: shareWalter
-    },
+    partnerShares,
     reimbursements: {
-      evandro: reimbursementByPartner[Partner.EVANDRO],
-      juliaSamuel: reimbursementByPartner[Partner.JULIA_SAMUEL],
-      walter: reimbursementByPartner[Partner.WALTER],
+      evandro: roundCurrency(reimbursementByPartner[Partner.EVANDRO]),
+      juliaSamuel: roundCurrency(reimbursementByPartner[Partner.JULIA_SAMUEL]),
+      walter: roundCurrency(reimbursementByPartner[Partner.WALTER]),
     },
     finalPayouts: {
-      evandro: shareEvandro + originationFees[Partner.EVANDRO] + reimbursementByPartner[Partner.EVANDRO],
-      juliaSamuel: shareJulia + originationFees[Partner.JULIA_SAMUEL] + reimbursementByPartner[Partner.JULIA_SAMUEL],
-      walter: shareWalter + originationFees[Partner.WALTER] + reimbursementByPartner[Partner.WALTER],
-      reserve: companyReserve
-    }
+      evandro: roundCurrency(partnerShares.evandro + originationFees[Partner.EVANDRO] + reimbursementByPartner[Partner.EVANDRO]),
+      juliaSamuel: roundCurrency(partnerShares.juliaSamuel + originationFees[Partner.JULIA_SAMUEL] + reimbursementByPartner[Partner.JULIA_SAMUEL]),
+      walter: roundCurrency(partnerShares.walter + originationFees[Partner.WALTER] + reimbursementByPartner[Partner.WALTER]),
+      reserve: companyReserve,
+    },
   };
 };

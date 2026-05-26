@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(vercel --version)",
+      "Bash(npm i *)",
+      "Bash(brew --version)",
+      "Bash(npm config *)",
+      "Bash(brew install *)",
+      "Bash(vercel whoami *)",
+      "Bash(vercel ls *)",
+      "Bash(vercel --prod --yes)"
+    ]
+  }
+}

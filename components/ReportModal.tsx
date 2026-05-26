@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { DistributionResult, FinancialData, TransactionType } from '../types';
+import { DistributionResult, FinancialData, MonthlyClosingSnapshot, TransactionType } from '../types';
 import { calculateDistribution } from '../utils/calculations';
 import { buildIsoDate, formatDisplayDate, getIsoDatePart, getLastDayOfMonth } from '../utils/date';
 import { Logo } from './Logo';
@@ -9,10 +9,10 @@ import { X, Printer, CalendarRange, AlertCircle, ArrowUpCircle, Calendar, Dollar
 interface Props {
   result: DistributionResult;
   transactions: FinancialData[];
+  closings: MonthlyClosingSnapshot[];
   onClose: () => void;
   initialMonth: string;
-  initialFortnight: number;
-  onPeriodChange: (month: string, fortnight: number) => void;
+  onPeriodChange: (month: string) => void;
 }
 
 enum ReportPeriod {
@@ -21,10 +21,10 @@ enum ReportPeriod {
   CUSTOM = 'Livre'
 }
 
-export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMonth, initialFortnight, onPeriodChange }) => {
-  const [periodType, setPeriodType] = useState<ReportPeriod>(ReportPeriod.QUINZENAL);
+export const ReportModal: React.FC<Props> = ({ transactions, closings, onClose, initialMonth, onPeriodChange }) => {
+  const [periodType, setPeriodType] = useState<ReportPeriod>(ReportPeriod.MENSAL);
   const [referenceMonth, setReferenceMonth] = useState(initialMonth);
-  const [fortnightMode, setFortnightMode] = useState<1 | 2>(initialFortnight as 1 | 2);
+  const [fortnightMode, setFortnightMode] = useState<1 | 2>(1);
 
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -69,7 +69,7 @@ export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMon
 
   const handleFortnightChange = (mode: 1 | 2) => {
     setFortnightMode(mode);
-    onPeriodChange(referenceMonth, mode);
+    onPeriodChange(referenceMonth);
   };
 
   const filteredTransactions = useMemo(() => {
@@ -82,16 +82,32 @@ export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMon
   }, [transactions, startDate, endDate]);
 
   const filteredResult = useMemo(() => calculateDistribution(filteredTransactions), [filteredTransactions]);
+  const officialClosing = useMemo(() => {
+    return periodType === ReportPeriod.MENSAL
+      ? closings.find((closing) => closing.month === referenceMonth) || null
+      : null;
+  }, [closings, periodType, referenceMonth]);
+
+  const officialClosingDiffers = useMemo(() => {
+    if (!officialClosing) return false;
+    return Math.abs(officialClosing.totalRevenue - filteredResult.realizedRevenue) > 0.01
+      || Math.abs(officialClosing.totalCOGS - filteredResult.totalCOGS) > 0.01
+      || Math.abs(officialClosing.totalOpEx - filteredResult.totalOpEx) > 0.01
+      || Math.abs(officialClosing.externalCommissions - filteredResult.externalCommissions) > 0.01
+      || Math.abs(officialClosing.originationFee - filteredResult.originationFee) > 0.01
+      || Math.abs(officialClosing.reserve - filteredResult.companyReserve) > 0.01
+      || Math.abs(officialClosing.distributableProfit - filteredResult.distributableBalance) > 0.01;
+  }, [filteredResult, officialClosing]);
 
   const handlePrint = () => window.print();
   const formatCurrency = (val: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/70 backdrop-blur-sm print:static print:block print:overflow-visible print:bg-white print:p-0">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#071425]/75 backdrop-blur-sm print:static print:block print:overflow-visible print:bg-white print:p-0">
       <div className="bg-white w-full max-w-5xl h-[95vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden print:block print:h-auto print:w-full print:max-w-none print:rounded-none print:shadow-none print:overflow-visible">
 
         {/* Controls Bar */}
-        <div className="p-5 bg-gradient-to-b from-slate-50 to-white border-b border-slate-200/80 flex flex-wrap gap-6 items-end print:hidden shadow-sm">
+        <div className="p-5 bg-[#F7F3EC] border-b border-[#E7DED0] flex flex-wrap gap-6 items-end print:hidden shadow-sm">
 
           {/* Period Type */}
           <div>
@@ -101,7 +117,7 @@ export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMon
                 <button
                   key={p}
                   onClick={() => setPeriodType(p)}
-                  className={`px-5 py-2 text-xs font-bold rounded-lg transition-all ${periodType === p ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:bg-white/50'}`}
+                  className={`px-5 py-2 text-xs font-bold rounded-lg transition-all ${periodType === p ? 'bg-[#102033] text-white shadow-md' : 'text-slate-500 hover:bg-white/70'}`}
                 >
                   {p}
                 </button>
@@ -115,7 +131,7 @@ export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMon
             <input
               type="month"
               value={referenceMonth}
-              onChange={(e) => { setReferenceMonth(e.target.value); onPeriodChange(e.target.value, fortnightMode); }}
+              onChange={(e) => { setReferenceMonth(e.target.value); onPeriodChange(e.target.value); }}
               className="px-4 py-2 bg-white border border-slate-300/80 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-slate-900/50 outline-none shadow-sm"
             />
           </div>
@@ -148,7 +164,7 @@ export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMon
             <button
               onClick={handlePrint}
               disabled={filteredTransactions.length === 0}
-              className="flex items-center gap-2 px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-bold shadow-lg transition-all disabled:bg-slate-300 disabled:cursor-not-allowed active:scale-[0.98]"
+              className="flex items-center gap-2 px-6 py-2.5 bg-[#102033] hover:bg-[#071425] text-white rounded-xl text-sm font-bold shadow-lg transition-all disabled:bg-slate-300 disabled:cursor-not-allowed active:scale-[0.98]"
             >
               <Printer className="w-4 h-4" /> Imprimir
             </button>
@@ -162,21 +178,21 @@ export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMon
         </div>
 
         {/* Report Content */}
-        <div className="flex-1 overflow-auto bg-slate-100/50 p-4 sm:p-8 print:block print:overflow-visible print:bg-white print:p-0">
+        <div className="flex-1 overflow-auto bg-[#EDE7DC] p-4 sm:p-8 print:block print:overflow-visible print:bg-white print:p-0">
           <div className="bg-white w-full lg:w-[210mm] lg:min-h-[297mm] mx-auto shadow-xl p-6 sm:p-10 lg:p-[20mm] text-slate-900 relative print:m-0 print:h-auto print:w-full print:max-w-none print:min-h-0 print:shadow-none print:p-[12mm]">
 
             {/* Header */}
-            <div className="flex justify-between items-start mb-12 border-b-4 border-slate-900 pb-6">
+            <div className="flex justify-between items-start mb-12 border-b-4 border-[#102033] pb-6">
               <div className="scale-90 origin-top-left"><Logo variant="dark" /></div>
               <div className="text-right">
-                <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tight leading-tight">Relatório Financeiro</h1>
-                <p className="text-sm font-bold text-emerald-600 uppercase tracking-widest mt-1.5">Demonstrativo de Fechamento</p>
+                <h1 className="text-3xl font-black text-[#102033] uppercase tracking-tight leading-tight">Monthly Closing Report</h1>
+                <p className="text-sm font-bold text-[#B9824A] uppercase tracking-widest mt-1.5">Onebridge Stalwart Internal Review</p>
                 <div className="mt-5 flex flex-col items-end text-xs font-bold text-slate-500">
                   <div className="flex items-center gap-2.5 px-4 py-1.5 bg-slate-50 rounded-full border border-slate-200/80 shadow-sm">
                     <Calendar className="w-3.5 h-3.5 text-slate-600" />
                     <span className="tabular-nums">{formatDisplayDate(startDate)} até {formatDisplayDate(endDate)}</span>
                   </div>
-                  <p className="mt-2.5 text-[10px] text-slate-400 font-mono uppercase">BATCH ID: {crypto.randomUUID().split('-')[0].toUpperCase()}</p>
+                  <p className="mt-2.5 text-[10px] text-slate-400 font-mono uppercase">MONTH: {referenceMonth}</p>
                 </div>
               </div>
             </div>
@@ -191,6 +207,40 @@ export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMon
               </div>
             ) : (
               <div className="space-y-10 print:space-y-8">
+
+                {officialClosing && (
+                  <div className="rounded-2xl border border-[#D8B98B]/60 bg-[#FBF8F2] p-5 break-inside-avoid print:bg-white print:border-slate-300">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-[#7A4E24]">Fechamento oficial salvo</p>
+                        <p className="mt-1 text-xs font-semibold text-[#102033]">Fechado em {formatDisplayDate(officialClosing.closedAt)} • {officialClosing.transactionIds.length} transações incluídas</p>
+                        {officialClosing.notes && <p className="mt-2 text-xs text-slate-600">{officialClosing.notes}</p>}
+                        {officialClosingDiffers && (
+                          <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[10px] font-black uppercase tracking-wide text-amber-800">
+                            Live view differs from official closing snapshot.
+                          </div>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 text-xs lg:grid-cols-3">
+                        {[
+                          ['Revenue', filteredResult.realizedRevenue, officialClosing.totalRevenue],
+                          ['COGS', filteredResult.totalCOGS, officialClosing.totalCOGS],
+                          ['OpEx', filteredResult.totalOpEx, officialClosing.totalOpEx],
+                          ['External Commissions', filteredResult.externalCommissions, officialClosing.externalCommissions],
+                          ['Origination', filteredResult.originationFee, officialClosing.originationFee],
+                          ['Reserve', filteredResult.companyReserve, officialClosing.reserve],
+                          ['Distributable', filteredResult.distributableBalance, officialClosing.distributableProfit],
+                        ].map(([label, live, closed]) => (
+                          <div key={label as string} className="rounded-lg border border-[#E7DED0] bg-white px-3 py-2">
+                            <p className="font-bold uppercase text-[#7A4E24]">{label as string}</p>
+                            <p className="font-mono text-[11px] text-slate-500">Live {formatCurrency(live as number)}</p>
+                            <p className="font-mono font-black text-slate-900">Closed {formatCurrency(closed as number)}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Summary Cards */}
                 {/* Summary Cards */}
@@ -223,7 +273,7 @@ export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMon
                       <p className="min-w-0 text-base sm:text-lg lg:text-[17px] font-black text-emerald-600 tabular-nums whitespace-nowrap leading-tight tracking-tight">{formatCurrency(filteredResult.safetyMargin)}</p>
                     </div>
                   </div>
-                  <div className="min-w-0 rounded-2xl border border-slate-900 bg-slate-900 p-4 text-white shadow-sm sm:col-span-2 sm:p-5 lg:col-span-3 print:col-span-3">
+                  <div className="min-w-0 rounded-2xl border border-[#102033] bg-[#102033] p-4 text-white shadow-sm sm:col-span-2 sm:p-5 lg:col-span-3 print:col-span-3 print:bg-white print:text-slate-900">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">Reserva (12%)</p>
                     <div className="flex min-w-0 items-center gap-2">
                       <DollarSign className="w-4 h-4 text-white flex-shrink-0" />
@@ -262,7 +312,7 @@ export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMon
                                 {t.type === TransactionType.REVENUE ? '+' : '-'}{formatCurrency(t.type === TransactionType.REVENUE ? t.grossRevenue : t.amount)}
                               </td>
                             </tr>
-                            {t.type === TransactionType.REVENUE && t.externalCommission && t.externalCommission > 0 && (
+                            {t.type === TransactionType.REVENUE && (t.externalCommission || 0) > 0 && (
                               <tr className="text-xs bg-red-50/40">
                                 <td className="px-5 py-3.5 text-slate-400 font-mono tabular-nums">{formatDisplayDate(t.date)}</td>
                                 <td className="px-5 py-3.5">
@@ -282,26 +332,26 @@ export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMon
                 </div>
 
                 {/* Distribution Table */}
-                <div className="bg-slate-900 rounded-2xl p-8 text-white shadow-lg break-inside-avoid print:rounded-xl print:shadow-none">
-                  <h3 className="text-xs font-black uppercase tracking-widest mb-6 border-b border-slate-700/60 pb-5 flex items-center gap-2.5">
-                    <div className="p-1.5 bg-emerald-500/20 rounded-lg">
-                      <CalendarRange className="w-4 h-4 text-emerald-400" />
+                <div className="bg-[#102033] rounded-2xl p-8 text-white shadow-lg break-inside-avoid print:rounded-xl print:shadow-none print:bg-white print:text-slate-900 print:border print:border-slate-300">
+                  <h3 className="text-xs font-black uppercase tracking-widest mb-6 border-b border-white/15 pb-5 flex items-center gap-2.5 print:border-slate-300">
+                    <div className="p-1.5 bg-[#B9824A]/20 rounded-lg print:bg-slate-100">
+                      <CalendarRange className="w-4 h-4 text-[#D8B98B] print:text-slate-700" />
                     </div>
                     Distribuição Detalhada (Memória de Cálculo)
                   </h3>
 
-                  <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/40">
+                  <div className="bg-white/5 rounded-xl p-5 border border-white/10 print:bg-white print:border-slate-300">
                     <table className="w-full">
                       <thead>
-                        <tr className="text-[9px] font-bold text-slate-400 uppercase text-right border-b border-slate-700/60">
-                          <th className="pb-4 text-left pl-3 text-slate-300 font-black">Sócio / Entidade</th>
-                          <th className="pb-4 text-slate-400 font-black">Quota (33%)</th>
-                          <th className="pb-4 text-emerald-400 font-black">Comissão (10%)</th>
-                          <th className="pb-4 text-amber-400 font-black">Reembolsos</th>
-                          <th className="pb-4 text-white font-black">TOTAL</th>
+                        <tr className="text-[9px] font-bold text-slate-400 uppercase text-right border-b border-white/15 print:border-slate-300">
+                          <th className="pb-4 text-left pl-3 text-slate-300 font-black print:text-slate-700">Sócio / Entidade</th>
+                          <th className="pb-4 text-slate-400 font-black print:text-slate-600">Quota (33%)</th>
+                          <th className="pb-4 text-[#D8B98B] font-black print:text-slate-600">Comissão (10%)</th>
+                          <th className="pb-4 text-amber-400 font-black print:text-slate-600">Reembolsos</th>
+                          <th className="pb-4 text-white font-black print:text-slate-900">TOTAL</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-700/40">
+                      <tbody className="divide-y divide-white/10 print:divide-slate-200">
                         {[
                           {
                             name: 'EVANDRO (PROFISCAL)',
@@ -325,19 +375,19 @@ export const ReportModal: React.FC<Props> = ({ transactions, onClose, initialMon
                             total: filteredResult.finalPayouts.walter
                           }
                         ].map((p, i) => (
-                          <tr key={i} className="text-sm hover:bg-slate-700/30 transition-colors">
-                            <td className="py-4 pl-3 font-bold text-white">{p.name}</td>
-                            <td className="py-4 text-right font-mono text-slate-300 tabular-nums">{formatCurrency(p.quota)}</td>
-                            <td className="py-4 text-right font-mono text-emerald-300 tabular-nums">+{formatCurrency(p.fee)}</td>
-                            <td className={`py-4 text-right font-mono font-bold tabular-nums ${p.reimb > 0 ? 'text-amber-300' : 'text-slate-600'}`}>+{formatCurrency(p.reimb)}</td>
-                            <td className="py-4 text-right font-mono font-black text-lg text-white tabular-nums">{formatCurrency(p.total)}</td>
+                          <tr key={i} className="text-sm hover:bg-white/5 transition-colors">
+                            <td className="py-4 pl-3 font-bold text-white print:text-slate-900">{p.name}</td>
+                            <td className="py-4 text-right font-mono text-slate-300 tabular-nums print:text-slate-700">{formatCurrency(p.quota)}</td>
+                            <td className="py-4 text-right font-mono text-[#D8B98B] tabular-nums print:text-slate-700">+{formatCurrency(p.fee)}</td>
+                            <td className={`py-4 text-right font-mono font-bold tabular-nums ${p.reimb > 0 ? 'text-amber-300 print:text-slate-700' : 'text-slate-600 print:text-slate-400'}`}>+{formatCurrency(p.reimb)}</td>
+                            <td className="py-4 text-right font-mono font-black text-lg text-white tabular-nums print:text-slate-900">{formatCurrency(p.total)}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
 
-                  <div className="mt-5 pt-5 border-t border-slate-700/40 text-[9px] text-slate-400 flex justify-between">
+                  <div className="mt-5 pt-5 border-t border-white/10 text-[9px] text-slate-400 flex justify-between print:border-slate-300 print:text-slate-500">
                     <p>* Quota calculada após dedução da Reserva e Comissões.</p>
                     <p>** Comissão calculada sobre Receita Bruta Originada.</p>
                   </div>

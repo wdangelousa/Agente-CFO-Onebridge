@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { FinancialData, Partner, TransactionType, ClientType, TransactionStatus, ExpenseCategory, FinancialAttachment } from '../types';
 import { getExchangeRate } from '../services/exchangeService';
-import { supabase } from '../supabaseClient';
-import { formatDisplayDate, getIsoDatePart, serializeDateInput } from '../utils/date';
+import { formatDisplayDate, getIsoDatePart, getDateMonthPart, serializeDateInput } from '../utils/date';
+import { ConfigOption, ConfigOptionsService, CONFIG_OPTION_TYPES, ConfigOptionType } from '../services/configOptionsService';
+import { SelectOrCreateInput } from './SelectOrCreateInput';
 import { Calculator, TrendingDown, TrendingUp, PlusCircle, FileText, Building2, UserCircle, Save, X, Wallet, CheckCircle2, Clock, Briefcase, Layers, Link as LinkIcon, PencilLine, Info, Users, Percent, DollarSign, Upload, Paperclip, Loader2, Trash2, File as FileIcon } from 'lucide-react';
 
 interface Props {
@@ -14,22 +15,6 @@ interface Props {
   onCancel: () => void;
 }
 
-const SERVICES_LIST = [
-  "Abertura Conta Bancária", "Abertura Delaware", "Abertura Flórida", "Abertura Off Shore B.V.I",
-  "Abertura Wyoming", "Agente Registrado DE", "Agente Registrado FL", "Agente Registrado WY",
-  "Apostilamento e Tradução", "Business Plan", "Compliance Anual Flórida", "Compliance B.V.I",
-  "Compliance Delaware CORP", "Compliance Delaware LLC", "Compliance Wyoming",
-  "Consultoria Contadores (hora)", "Customização Documentos", "Dissolução Delaware",
-  "Dissolução Flórida", "Dissolução Wyoming", "Mudanças/Amendments", "Planej.Tributário Avançado",
-  "Planej.Tributário Básico", "Registro Marca USPTO p/ classe", "Visto EB-1", "Visto EB-2",
-  "Visto EB-3", "Visto E-2", "Visto L-1", "Visto O-1", "Visto - RFE", "Visto - Appeal / Motion", "Visto - Refile"
-];
-
-const EXPENSE_TYPES = [
-  "Taxa Governamental (Filing Fee)", "Apostilamento", "Tradução Juramentada", "Certidão de Good Standing",
-  "Honorários Parceiros", "Marketing / Ads", "Software / Assinaturas", "Reembolso de Viagem", "Material de Escritório", "Contabilidade"
-];
-
 export const FinancialForm: React.FC<Props> = ({ data, resetToken, revenueOptions, onChange, onAdd, onCancel }) => {
   const [loadingRate, setLoadingRate] = useState(false);
   const [currentRate, setCurrentRate] = useState<number | null>(null);
@@ -39,6 +24,12 @@ export const FinancialForm: React.FC<Props> = ({ data, resetToken, revenueOption
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [serviceOptions, setServiceOptions] = useState<ConfigOption[]>([]);
+  const [expenseOptions, setExpenseOptions] = useState<ConfigOption[]>([]);
+  const [originatorOptions, setOriginatorOptions] = useState<ConfigOption[]>([]);
+  const [reimbursementPartyOptions, setReimbursementPartyOptions] = useState<ConfigOption[]>([]);
+  const [loadingOptions, setLoadingOptions] = useState(true);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
 
   const isExpense = data.type === TransactionType.EXPENSE;
   const isCompany = data.clientType === ClientType.COMPANY;
@@ -55,6 +46,36 @@ export const FinancialForm: React.FC<Props> = ({ data, resetToken, revenueOption
     }
     setCommissionMode(data.commissionType || 'fixed');
   }, [data.id, data.type, resetToken]);
+
+  useEffect(() => {
+    const loadOptions = async () => {
+      setLoadingOptions(true);
+      setOptionsError(null);
+
+      try {
+        await ConfigOptionsService.seedDefaultOptions();
+
+        const [services, expenses, originators, reimbursementParties] = await Promise.all([
+          ConfigOptionsService.listOptions(CONFIG_OPTION_TYPES.SERVICE_MODALITY),
+          ConfigOptionsService.listOptions(CONFIG_OPTION_TYPES.EXPENSE_DESCRIPTION),
+          ConfigOptionsService.listOptions(CONFIG_OPTION_TYPES.ORIGINATOR),
+          ConfigOptionsService.listOptions(CONFIG_OPTION_TYPES.REIMBURSEMENT_PARTY),
+        ]);
+
+        setServiceOptions(services);
+        setExpenseOptions(expenses);
+        setOriginatorOptions(originators);
+        setReimbursementPartyOptions(reimbursementParties);
+      } catch (error) {
+        console.error('Erro ao carregar opções configuráveis:', error);
+        setOptionsError('Não foi possível carregar as opções salvas.');
+      } finally {
+        setLoadingOptions(false);
+      }
+    };
+
+    loadOptions();
+  }, []);
 
   useEffect(() => {
     if (commissionMode === 'percentage' && data.type === TransactionType.REVENUE) {
@@ -167,23 +188,16 @@ export const FinancialForm: React.FC<Props> = ({ data, resetToken, revenueOption
 
     try {
       for (const file of files) {
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${Math.random().toString(36).substring(2, 15)}_${Date.now()}.${fileExt}`;
-        const filePath = `${fileName}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from('documents')
-          .upload(filePath, file);
-
-        if (uploadError) throw uploadError;
-
-        const { data: publicUrlData } = supabase.storage
-          .from('documents')
-          .getPublicUrl(filePath);
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ''));
+          reader.onerror = () => reject(reader.error || new Error('Falha ao ler arquivo local.'));
+          reader.readAsDataURL(file);
+        });
 
         newAttachments.push({
           name: file.name,
-          url: publicUrlData.publicUrl,
+          url: dataUrl,
           type: file.type,
           size: file.size
         });
@@ -242,6 +256,32 @@ export const FinancialForm: React.FC<Props> = ({ data, resetToken, revenueOption
         serviceType: `Ref: ${rev.description}`
       });
     }
+  };
+
+  const optionLabels = (options: ConfigOption[], currentValue?: string) => {
+    const labels = options.map((option) => option.label);
+    const normalizedCurrent = ConfigOptionsService.normalizeOptionLabel(currentValue || '');
+
+    if (normalizedCurrent && !labels.some((label) => ConfigOptionsService.normalizeOptionLabel(label) === normalizedCurrent)) {
+      return [...labels, currentValue || ''];
+    }
+
+    return labels;
+  };
+
+  const createConfigOption = async (
+    type: ConfigOptionType,
+    label: string,
+    setOptions: React.Dispatch<React.SetStateAction<ConfigOption[]>>
+  ) => {
+    const created = await ConfigOptionsService.createOption(type, label);
+    setOptions((current) => {
+      const withoutDuplicate = current.filter(
+        (option) => ConfigOptionsService.normalizeOptionLabel(option.label) !== ConfigOptionsService.normalizeOptionLabel(created.label)
+      );
+      return [...withoutDuplicate, created].sort((a, b) => a.label.localeCompare(b.label));
+    });
+    return created.label;
   };
 
   const isValidRevenue = !isExpense && (data.grossRevenue || 0) > 0 && data.description.trim().length > 0;
@@ -318,7 +358,10 @@ export const FinancialForm: React.FC<Props> = ({ data, resetToken, revenueOption
             <input
               type="date"
               value={getIsoDatePart(data.date)}
-              onChange={(e) => onChange({ ...data, date: serializeDateInput(e.target.value) })}
+              onChange={(e) => {
+                const date = serializeDateInput(e.target.value);
+                onChange({ ...data, date, competenceMonth: getDateMonthPart(date) });
+              }}
               className="w-full px-4 py-3 border border-slate-300/80 rounded-xl text-sm font-semibold text-slate-800 bg-white outline-none focus:ring-2 focus:ring-[#D7FF3E]/50 focus:border-[#D7FF3E] transition-all shadow-sm"
             />
           </div>
@@ -367,14 +410,15 @@ export const FinancialForm: React.FC<Props> = ({ data, resetToken, revenueOption
           <div className="space-y-6">
             <div>
               <label className="block text-xs font-bold text-slate-600 uppercase mb-2.5 tracking-wide">Serviço Prestado</label>
-              <select
+              <SelectOrCreateInput
                 value={data.serviceType || ''}
-                onChange={(e) => onChange({ ...data, serviceType: e.target.value })}
-                className="w-full px-4 py-3.5 border border-slate-300/80 rounded-xl text-sm bg-white outline-none focus:ring-2 focus:ring-[#D7FF3E]/50 focus:border-[#D7FF3E] transition-all font-medium shadow-sm"
-              >
-                <option value="" disabled>Selecione...</option>
-                {SERVICES_LIST.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
+                options={optionLabels(serviceOptions, data.serviceType)}
+                onChange={(value) => onChange({ ...data, serviceType: value })}
+                onCreate={(label) => createConfigOption(CONFIG_OPTION_TYPES.SERVICE_MODALITY, label, setServiceOptions)}
+                loading={loadingOptions}
+                error={optionsError}
+                placeholder="Selecione ou digite um serviço"
+              />
             </div>
 
             <div className="bg-slate-50/80 p-5 rounded-xl border border-slate-200/80 space-y-4 shadow-sm">
@@ -563,15 +607,16 @@ export const FinancialForm: React.FC<Props> = ({ data, resetToken, revenueOption
 
             <div>
               <label className="block text-xs font-bold text-slate-600 uppercase mb-2.5 tracking-wide">Descrição do Gasto</label>
-              <input
-                type="text"
-                list="expense-list"
+              <SelectOrCreateInput
                 value={data.description}
-                onChange={(e) => onChange({ ...data, description: e.target.value })}
+                options={optionLabels(expenseOptions, data.description)}
+                onChange={(value) => onChange({ ...data, description: value })}
+                onCreate={(label) => createConfigOption(CONFIG_OPTION_TYPES.EXPENSE_DESCRIPTION, label, setExpenseOptions)}
                 placeholder="Ex: Taxa Wyoming..."
-                className="w-full px-4 py-3.5 border border-slate-300/80 rounded-xl text-sm outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all font-medium shadow-sm"
+                loading={loadingOptions}
+                error={optionsError}
+                accentClassName="focus:ring-red-400/50 focus:border-red-400"
               />
-              <datalist id="expense-list">{EXPENSE_TYPES.map(e => <option key={e} value={e} />)}</datalist>
             </div>
 
             <div className={`p-5 rounded-xl border transition-all shadow-sm ${data.isReimbursable ? 'bg-amber-50 border-amber-300/80' : 'bg-slate-50/80 border-slate-200/80'}`}>
@@ -592,14 +637,16 @@ export const FinancialForm: React.FC<Props> = ({ data, resetToken, revenueOption
               </div>
               {data.isReimbursable && (
                 <div className="animate-in fade-in slide-in-from-top-1 duration-150">
-                  <select
+                  <SelectOrCreateInput
                     value={data.reimbursementBeneficiary || ''}
-                    onChange={(e) => onChange({ ...data, reimbursementBeneficiary: e.target.value as Partner })}
-                    className={`w-full px-4 py-3.5 border rounded-xl text-sm outline-none focus:ring-2 transition-all shadow-sm ${!data.reimbursementBeneficiary ? 'border-red-300/80 bg-red-50 text-red-700 focus:ring-red-400/50' : 'border-amber-300/80 bg-white text-slate-700 focus:ring-amber-400/50'}`}
-                  >
-                    <option value="" disabled>Selecione OBRIGATORIAMENTE...</option>
-                    {Object.values(Partner).filter(p => p !== Partner.NONE).map(p => <option key={p} value={p}>{p}</option>)}
-                  </select>
+                    options={optionLabels(reimbursementPartyOptions, data.reimbursementBeneficiary)}
+                    onChange={(value) => onChange({ ...data, reimbursementBeneficiary: value })}
+                    onCreate={(label) => createConfigOption(CONFIG_OPTION_TYPES.REIMBURSEMENT_PARTY, label, setReimbursementPartyOptions)}
+                    loading={loadingOptions}
+                    error={optionsError}
+                    placeholder="Selecione obrigatoriamente..."
+                    accentClassName={!data.reimbursementBeneficiary ? 'focus:ring-red-400/50 focus:border-red-400' : 'focus:ring-amber-400/50 focus:border-amber-400'}
+                  />
                   {!data.reimbursementBeneficiary && (
                     <p className="text-[10px] text-red-600 mt-2.5 font-semibold flex items-center gap-1.5">
                       <Info className="w-3 h-3" /> Seleção obrigatória para processar o reembolso.
@@ -637,14 +684,16 @@ export const FinancialForm: React.FC<Props> = ({ data, resetToken, revenueOption
             <label className="block text-xs font-bold text-slate-600 uppercase mb-2.5 tracking-wide">
               {isExpense ? 'Originador Vinculado (Opcional)' : 'Originador (Vendedor)'}
             </label>
-            <select
-              value={data.originator}
-              onChange={(e) => onChange({ ...data, originator: e.target.value as Partner })}
-              className="w-full px-4 py-3.5 border border-slate-300/80 rounded-xl text-sm bg-white outline-none focus:ring-2 focus:ring-slate-400/50 transition-all font-medium shadow-sm"
-            >
-              <option value={Partner.NONE} disabled>Selecione...</option>
-              {Object.values(Partner).filter(p => p !== Partner.NONE).map(p => <option key={p} value={p}>{p}</option>)}
-            </select>
+            <SelectOrCreateInput
+              value={data.originator === Partner.NONE ? '' : data.originator}
+              options={optionLabels(originatorOptions, data.originator === Partner.NONE ? undefined : data.originator)}
+              onChange={(value) => onChange({ ...data, originator: value || Partner.NONE })}
+              onCreate={(label) => createConfigOption(CONFIG_OPTION_TYPES.ORIGINATOR, label, setOriginatorOptions)}
+              loading={loadingOptions}
+              error={optionsError}
+              placeholder="Selecione ou digite um originador"
+              accentClassName="focus:ring-slate-400/50 focus:border-slate-400"
+            />
             {isExpense && (
               <p className="text-[10px] text-slate-500 mt-2.5 flex items-center gap-1.5 leading-relaxed">
                 <Info className="w-3.5 h-3.5 flex-shrink-0" />

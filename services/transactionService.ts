@@ -1,174 +1,161 @@
-import { supabase } from '../supabaseClient';
-import { FinancialData, TransactionType, TransactionStatus, Partner, ExpenseCategory, ClientType, PaymentMethod } from '../types';
+import { FinancialData, TransactionType } from '../types';
+import { getDateMonthPart } from '../utils/date';
 
-export const TRANSACTION_TABLE = 'transactions';
+export const TRANSACTION_STORAGE_KEY = 'onebridge_cfo_transactions_v1';
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function createId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `txn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function getStorage(): Storage | null {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return null;
+  }
+
+  return window.localStorage;
+}
+
+function normalizeTransaction(transaction: FinancialData): FinancialData {
+  const timestamp = nowIso();
+  const date = transaction.date || timestamp;
+  const competenceMonth = transaction.competenceMonth || getDateMonthPart(date);
+  const amount = transaction.type === TransactionType.REVENUE
+    ? transaction.grossRevenue || transaction.amount || 0
+    : transaction.amount || 0;
+
+  return {
+    ...transaction,
+    id: transaction.id || createId(),
+    date,
+    competenceMonth,
+    amount: transaction.type === TransactionType.EXPENSE ? amount : transaction.amount || 0,
+    grossRevenue: transaction.type === TransactionType.REVENUE ? transaction.grossRevenue || amount : transaction.grossRevenue || 0,
+    currency: transaction.currency || 'USD',
+    createdAt: transaction.createdAt || timestamp,
+    updatedAt: transaction.updatedAt || timestamp,
+  };
+}
+
+let memoryTransactions: FinancialData[] = [];
 
 export class TransactionService {
+  private static readAll(): FinancialData[] {
+    const storage = getStorage();
 
-    static async fetchAll(): Promise<FinancialData[]> {
-        const { data, error } = await supabase
-            .from(TRANSACTION_TABLE)
-            .select('*')
-            .order('date', { ascending: true });
-
-        if (error) {
-            console.error('Error fetching transactions:', error);
-            throw error;
-        }
-
-        return (data || []).map(this.mapToFrontend);
+    if (!storage) {
+      return memoryTransactions;
     }
 
-    static async create(transaction: FinancialData): Promise<FinancialData> {
-        const dbPayload = this.mapToBackend(transaction);
-        // Remove ID if present to let DB generate it, or keep if UUID provided manually
-        if (!transaction.id || transaction.id === 'manual') {
-            delete dbPayload.id;
-        }
+    try {
+      const rawValue = storage.getItem(TRANSACTION_STORAGE_KEY);
+      const parsed = rawValue ? JSON.parse(rawValue) : [];
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
 
-        const { data, error } = await supabase
-            .from(TRANSACTION_TABLE)
-            .insert(dbPayload)
-            .select()
-            .single();
+      const transactions = parsed.map((item) => normalizeTransaction(item as FinancialData));
+      this.writeAll(transactions);
+      return transactions;
+    } catch (error) {
+      console.warn('Failed to read local transactions. Starting with an empty ledger.', error);
+      return [];
+    }
+  }
 
-        if (error) {
-            console.error('Error creating transaction:', error);
-            throw error;
-        }
+  private static writeAll(transactions: FinancialData[]): void {
+    const normalizedTransactions = transactions
+      .map(normalizeTransaction)
+      .sort((a, b) => new Date(a.date || '').getTime() - new Date(b.date || '').getTime());
 
-        return this.mapToFrontend(data);
+    const storage = getStorage();
+
+    if (!storage) {
+      memoryTransactions = normalizedTransactions;
+      return;
     }
 
-    static async update(transaction: FinancialData): Promise<FinancialData> {
-        if (!transaction.id) throw new Error('Transaction ID is required for update');
+    storage.setItem(TRANSACTION_STORAGE_KEY, JSON.stringify(normalizedTransactions));
+  }
 
-        const dbPayload = this.mapToBackend(transaction);
-        // Remove ID from payload to avoid PK update error (though usually harmless)
-        delete dbPayload.id;
+  static async fetchAll(): Promise<FinancialData[]> {
+    return this.readAll();
+  }
 
-        const { data, error } = await supabase
-            .from(TRANSACTION_TABLE)
-            .update(dbPayload)
-            .eq('id', transaction.id)
-            .select()
-            .single();
+  static async create(transaction: FinancialData): Promise<FinancialData> {
+    const created = normalizeTransaction({
+      ...transaction,
+      id: transaction.id && transaction.id !== 'manual' ? transaction.id : undefined,
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    });
 
-        if (error) {
-            console.error('Error updating transaction:', error);
-            throw error;
-        }
+    this.writeAll([...this.readAll(), created]);
+    return created;
+  }
 
-        return this.mapToFrontend(data);
+  static async update(transaction: FinancialData): Promise<FinancialData> {
+    if (!transaction.id) {
+      throw new Error('Transaction ID is required for update');
     }
 
-    static async delete(id: string): Promise<void> {
-        const { error } = await supabase
-            .from(TRANSACTION_TABLE)
-            .delete()
-            .eq('id', id);
+    const transactions = this.readAll();
+    const index = transactions.findIndex((item) => item.id === transaction.id);
 
-        if (error) {
-            console.error('Error deleting transaction:', error);
-            throw error;
-        }
+    if (index < 0) {
+      throw new Error('Transaction not found');
     }
 
-    // --- Mappers ---
+    const updated = normalizeTransaction({
+      ...transaction,
+      createdAt: transactions[index].createdAt || transaction.createdAt,
+      updatedAt: nowIso(),
+    });
 
-    private static mapToFrontend(dbItem: any): FinancialData {
-        return {
-            id: dbItem.id,
-            date: dbItem.date,
-            type: dbItem.type as TransactionType,
-            status: dbItem.status as TransactionStatus,
-            description: dbItem.description,
+    transactions[index] = updated;
+    this.writeAll(transactions);
+    return updated;
+  }
 
-            category: dbItem.category as ExpenseCategory,
-            linkedTransactionId: dbItem.linked_transaction_id,
+  static async upsertMany(nextTransactions: FinancialData[]): Promise<FinancialData[]> {
+    const current = this.readAll();
+    const byId = new Map(current.map((transaction) => [transaction.id, transaction]));
 
-            serviceType: dbItem.service_type,
-            clientType: dbItem.client_type as ClientType,
-            clientTaxId: dbItem.client_tax_id,
-            clientAddress: dbItem.client_address,
-            clientEmail: dbItem.client_email,
-            responsibleName: dbItem.responsible_name,
+    nextTransactions.forEach((transaction) => {
+      const existing = transaction.id ? byId.get(transaction.id) : undefined;
+      const normalized = normalizeTransaction({
+        ...existing,
+        ...transaction,
+        id: transaction.id || existing?.id,
+        createdAt: existing?.createdAt || transaction.createdAt || nowIso(),
+        updatedAt: nowIso(),
+      } as FinancialData);
+      byId.set(normalized.id, normalized);
+    });
 
-            grossRevenue: Number(dbItem.gross_revenue) || 0,
-            amount: Number(dbItem.amount) || 0,
+    const updated = Array.from(byId.values());
+    this.writeAll(updated);
+    return updated;
+  }
 
-            externalCommission: Number(dbItem.external_commission) || 0,
-            externalCommissionDescription: dbItem.external_commission_description,
+  static async delete(id: string): Promise<void> {
+    this.writeAll(this.readAll().filter((transaction) => transaction.id !== id));
+  }
 
-            originator: dbItem.originator as Partner,
+  static async replaceAll(transactions: FinancialData[]): Promise<FinancialData[]> {
+    const normalizedTransactions = transactions.map((transaction) => normalizeTransaction(transaction));
+    this.writeAll(normalizedTransactions);
+    return normalizedTransactions;
+  }
 
-            isReimbursable: dbItem.is_reimbursable,
-            reimbursementBeneficiary: dbItem.reimbursement_beneficiary as Partner,
-
-            attachmentUrl: dbItem.attachment_url,
-            attachments: dbItem.attachments,
-
-            issuedAt: dbItem.issued_at,
-            invoiceNumber: dbItem.invoice_number,
-
-            commissionType: dbItem.commission_type || 'fixed',
-            commissionRate: Number(dbItem.commission_rate) || 0,
-
-            paymentMethod: dbItem.payment_method as PaymentMethod,
-            paymentLink: dbItem.payment_link,
-
-            currency: dbItem.currency || 'USD',
-            originalAmount: Number(dbItem.original_amount),
-            exchangeRate: Number(dbItem.exchange_rate),
-            exchangeSource: dbItem.exchange_source,
-        };
-    }
-
-    private static mapToBackend(item: FinancialData): any {
-        return {
-            // id: item.id, // Handled in create/update logic
-            date: item.date,
-            type: item.type,
-            status: item.status,
-            description: item.description,
-
-            category: item.category,
-            linked_transaction_id: item.linkedTransactionId || null,
-
-            service_type: item.serviceType,
-            client_type: item.clientType,
-            client_tax_id: item.clientTaxId,
-            client_address: item.clientAddress,
-            client_email: item.clientEmail,
-            responsible_name: item.responsibleName,
-
-            gross_revenue: item.grossRevenue || 0,
-            amount: item.amount || 0,
-
-            external_commission: item.externalCommission || 0,
-            external_commission_description: item.externalCommissionDescription,
-
-            originator: item.originator,
-
-            is_reimbursable: item.isReimbursable || false,
-            reimbursement_beneficiary: item.reimbursementBeneficiary,
-
-            attachment_url: item.attachmentUrl,
-            attachments: item.attachments,
-
-            issued_at: item.issuedAt || null,
-            invoice_number: item.invoiceNumber,
-
-            commission_type: item.commissionType,
-            commission_rate: item.commissionRate,
-
-            payment_method: item.paymentMethod,
-            payment_link: item.paymentLink,
-
-            currency: item.currency,
-            original_amount: item.originalAmount,
-            exchange_rate: item.exchangeRate,
-            exchange_source: item.exchangeSource,
-        };
-    }
+  static async clearAll(): Promise<void> {
+    this.writeAll([]);
+  }
 }

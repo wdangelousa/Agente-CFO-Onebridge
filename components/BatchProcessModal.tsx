@@ -1,12 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
-import { FinancialData, TransactionType } from '../types';
-import { sendInvoiceNotification } from '../services/emailService';
-import { CheckCircle2, Loader2, Send, Users, AlertCircle, X, Zap, FileText } from 'lucide-react';
+import { FinancialData, InvoiceRecord, TransactionType } from '../types';
+import { InvoiceService } from '../services/invoiceService';
+import { CheckCircle2, Loader2, Send, Users, X, Zap, FileText } from 'lucide-react';
 
 interface Props {
   transactions: FinancialData[];
-  onComplete: (updatedTransactions: FinancialData[]) => void;
+  invoices: InvoiceRecord[];
+  onComplete: (updatedTransactions: FinancialData[], updatedInvoices: InvoiceRecord[]) => void;
   onClose: () => void;
 }
 
@@ -15,9 +16,10 @@ interface ProcessState {
   client: string;
   status: 'pending' | 'processing' | 'completed' | 'error';
   stakeholdersNotified: boolean;
+  invoiceNumber?: string;
 }
 
-export const BatchProcessModal: React.FC<Props> = ({ transactions, onComplete, onClose }) => {
+export const BatchProcessModal: React.FC<Props> = ({ transactions, invoices, onComplete, onClose }) => {
   const [processList, setProcessList] = useState<ProcessState[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
@@ -25,15 +27,20 @@ export const BatchProcessModal: React.FC<Props> = ({ transactions, onComplete, o
 
   useEffect(() => {
     const list = transactions
-      .filter(t => t.type === TransactionType.REVENUE && !t.issuedAt)
+      .filter(t => {
+        if (t.type !== TransactionType.REVENUE) return false;
+        const invoice = invoices.find((item) => t.id && item.transactionIds.includes(t.id));
+        return !invoice || invoice.status === 'draft' || invoice.status === 'cancelled';
+      })
       .map(t => ({
         id: t.id!,
         client: t.description,
         status: 'pending' as const,
-        stakeholdersNotified: false
+        stakeholdersNotified: false,
+        invoiceNumber: invoices.find((item) => t.id && item.transactionIds.includes(t.id))?.invoiceNumber
       }));
     setProcessList(list);
-  }, [transactions]);
+  }, [invoices, transactions]);
 
   const runAutomation = async () => {
     setIsProcessing(true);
@@ -50,16 +57,13 @@ export const BatchProcessModal: React.FC<Props> = ({ transactions, onComplete, o
       if (!originalTx) continue;
 
       try {
-        const invNum = `INV-${new Date().getFullYear()}-${Math.floor(Math.random() * 9000) + 1000}`;
-        
-        // 1. Notificar Stakeholders (Samuel, Finance, Walter) - REQUISITO CORE
-        await sendInvoiceNotification(invNum, item.client, originalTx.grossRevenue);
+        const invoice = await InvoiceService.issueForTransaction(originalTx, { status: 'issued' });
+        item.invoiceNumber = invoice.invoiceNumber;
         item.stakeholdersNotified = true;
 
-        // 2. Marcar como faturado internamente (Protocolo)
-        // Isso automatiza a geração a partir dos dados do cliente já existentes no objeto originalTx
-        originalTx.issuedAt = new Date().toISOString();
-        originalTx.invoiceNumber = invNum;
+        originalTx.issuedAt = invoice.issuedAt;
+        originalTx.invoiceNumber = invoice.invoiceNumber;
+        originalTx.invoiceId = invoice.id;
         
         item.status = 'completed';
         setTotalProcessed(prev => prev + 1);
@@ -70,7 +74,7 @@ export const BatchProcessModal: React.FC<Props> = ({ transactions, onComplete, o
     }
 
     setIsProcessing(false);
-    onComplete(updatedTransactions);
+    onComplete(updatedTransactions, await InvoiceService.fetchAll());
   };
 
   return (
@@ -111,8 +115,8 @@ export const BatchProcessModal: React.FC<Props> = ({ transactions, onComplete, o
                   <div className="flex items-center gap-2">
                     {item.status === 'processing' && <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />}
                     {item.status === 'completed' && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
-                    <span className={`text-[10px] font-black uppercase tracking-widest ${item.status === 'completed' ? 'text-emerald-600' : 'text-slate-400'}`}>
-                      {item.status === 'completed' ? 'Protocolado' : item.status}
+                  <span className={`text-[10px] font-black uppercase tracking-widest ${item.status === 'completed' ? 'text-emerald-600' : 'text-slate-400'}`}>
+                      {item.status === 'completed' ? `Protocolado ${item.invoiceNumber || ''}` : item.status}
                     </span>
                   </div>
                 </div>

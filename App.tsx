@@ -1,7 +1,4 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { supabase } from './supabaseClient';
-import { Session } from '@supabase/supabase-js';
-import { Login } from './components/Login';
 import { FinancialForm } from './components/FinancialForm';
 import { DistributionResults } from './components/DistributionResults';
 import { PnLStatement } from './components/PnLStatement';
@@ -10,12 +7,20 @@ import { CfoAssistant } from './components/CfoAssistant';
 import { InvoiceModal } from './components/InvoiceModal';
 import { ReportModal } from './components/ReportModal';
 import { BatchProcessModal } from './components/BatchProcessModal';
-import { FinancialData, DistributionResult, Partner, TransactionType, PaymentMethod, ClientType, TransactionStatus, ExpenseCategory } from './types';
+import { FinancialData, InvoiceRecord, MonthlyClosingSnapshot, Partner, TransactionType, PaymentMethod, ClientType, TransactionStatus, ExpenseCategory } from './types';
 import { calculateDistribution } from './utils/calculations';
-import { createStoredDate, formatDisplayDate, getDateDayOfMonth, getDateMonthPart, getLocalMonthPart } from './utils/date';
+import { createStoredDate, formatDisplayDate, getDateMonthPart, getLocalMonthPart } from './utils/date';
 import { Logo } from './components/Logo';
-import { Eraser, FilePlus2, FileBarChart, Calendar, ChevronLeft, ChevronRight, History, Zap, LayoutDashboard, PenLine, Bot, Menu, LogOut, Loader2, Activity, PieChart } from 'lucide-react';
+import { Eraser, FilePlus2, FileBarChart, Calendar, ChevronLeft, ChevronRight, History, Zap, LayoutDashboard, PenLine, Bot, Activity, PieChart, LockKeyhole, Download, Upload, RotateCcw, FlaskConical } from 'lucide-react';
 import { TransactionService } from './services/transactionService';
+import { MonthlyClosingService } from './services/monthlyClosingService';
+import { LocalBackupService } from './services/localBackupService';
+import { InvoiceService } from './services/invoiceService';
+import { DemoDataService } from './services/demoDataService';
+
+// Dev-only: demo data seeding is hidden in production builds and is never
+// triggered automatically — it only runs from the manual button below.
+const IS_DEV = import.meta.env.DEV;
 
 const INITIAL_FORM_DATA: FinancialData = {
   type: TransactionType.REVENUE,
@@ -45,7 +50,7 @@ const ACTIVE_PERIOD_STORAGE_KEY = 'onebridge:active-period';
 
 const INITIAL_NOW = new Date();
 const INITIAL_REF_MONTH = getLocalMonthPart(INITIAL_NOW);
-const INITIAL_FORTNIGHT: 1 | 2 = INITIAL_NOW.getDate() <= 15 ? 1 : 2;
+const formatCurrency = (value: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value || 0);
 
 const readStoredPeriod = () => {
   if (typeof window === 'undefined') {
@@ -58,17 +63,15 @@ const readStoredPeriod = () => {
       return null;
     }
 
-    const parsed = JSON.parse(rawValue) as { refMonth?: string; fortnight?: number };
-    const storedFortnight = parsed.fortnight === 1 || parsed.fortnight === 2 ? parsed.fortnight : null;
+    const parsed = JSON.parse(rawValue) as { refMonth?: string };
     const hasValidMonth = typeof parsed.refMonth === 'string' && /^\d{4}-\d{2}$/.test(parsed.refMonth);
 
-    if (!hasValidMonth || !storedFortnight) {
+    if (!hasValidMonth) {
       return null;
     }
 
     return {
-      refMonth: parsed.refMonth,
-      fortnight: storedFortnight
+      refMonth: parsed.refMonth
     };
   } catch {
     return null;
@@ -77,27 +80,25 @@ const readStoredPeriod = () => {
 
 const getInitialPeriod = () => {
   return readStoredPeriod() || {
-    refMonth: INITIAL_REF_MONTH,
-    fortnight: INITIAL_FORTNIGHT
+    refMonth: INITIAL_REF_MONTH
   };
 };
 
-const getPeriodAnchorDate = (refMonth: string, fortnight: 1 | 2) => {
+const getPeriodAnchorDate = (refMonth: string) => {
   const [year, month] = refMonth.split('-').map(Number);
-  const day = fortnight === 1 ? 1 : 16;
-  return createStoredDate(year, month, day);
+  return createStoredDate(year, month, 1);
 };
 
 const createFormState = (
   refMonth: string,
-  fortnight: 1 | 2,
   type: TransactionType = TransactionType.REVENUE
 ): FinancialData => {
   const baseState: FinancialData = {
     ...INITIAL_FORM_DATA,
     type,
     currency: 'USD',
-    date: getPeriodAnchorDate(refMonth, fortnight)
+    date: getPeriodAnchorDate(refMonth),
+    competenceMonth: refMonth
   };
 
   if (type === TransactionType.EXPENSE) {
@@ -124,15 +125,12 @@ const createFormState = (
 export default function App() {
   const initialPeriod = getInitialPeriod();
 
-  // Auth State
-  const [session, setSession] = useState<Session | null>(null);
-  const [loadingAuth, setLoadingAuth] = useState(true);
-
   // App Data State
   const [refMonth, setRefMonth] = useState(initialPeriod.refMonth);
-  const [fortnight, setFortnight] = useState<1 | 2>(initialPeriod.fortnight);
-  const [formData, setFormData] = useState<FinancialData>(() => createFormState(initialPeriod.refMonth, initialPeriod.fortnight));
+  const [formData, setFormData] = useState<FinancialData>(() => createFormState(initialPeriod.refMonth));
   const [allTransactions, setAllTransactions] = useState<FinancialData[]>([]);
+  const [monthlyClosings, setMonthlyClosings] = useState<MonthlyClosingSnapshot[]>([]);
+  const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const [loadingData, setLoadingData] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<SaveFeedback>(null);
   const [formResetToken, setFormResetToken] = useState(0);
@@ -147,49 +145,27 @@ export default function App() {
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
 
-  // Auth Effect com Tratamento de Erro Robusto
   useEffect(() => {
-    const initSession = async () => {
+    const loadLocalData = async () => {
+      setLoadingData(true);
       try {
-        const { data, error } = await supabase.auth.getSession();
-        if (error) throw error;
-        setSession(data.session);
+        const [transactions, closings, localInvoices] = await Promise.all([
+          TransactionService.fetchAll(),
+          MonthlyClosingService.fetchAll(),
+          InvoiceService.fetchAll(),
+        ]);
+        setAllTransactions(transactions);
+        setMonthlyClosings(closings);
+        setInvoices(localInvoices);
       } catch (error) {
-        console.warn("Sessão não iniciada:", error);
-        setSession(null);
+        console.error("Failed to load local data", error);
       } finally {
-        setLoadingAuth(false);
+        setLoadingData(false);
       }
     };
 
-    initSession();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-    });
-
-    return () => subscription.unsubscribe();
+    loadLocalData();
   }, []);
-
-  // Fetch Transactions on Session Change
-  useEffect(() => {
-    if (session) {
-      const loadTransactions = async () => {
-        setLoadingData(true);
-        try {
-          const data = await TransactionService.fetchAll();
-          setAllTransactions(data);
-        } catch (error) {
-          console.error("Failed to load transactions", error);
-        } finally {
-          setLoadingData(false);
-        }
-      };
-      loadTransactions();
-    }
-  }, [session]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -199,12 +175,12 @@ export default function App() {
     try {
       window.localStorage.setItem(
         ACTIVE_PERIOD_STORAGE_KEY,
-        JSON.stringify({ refMonth, fortnight })
+        JSON.stringify({ refMonth })
       );
     } catch {
       // Ignore storage failures and keep the in-memory period selection.
     }
-  }, [refMonth, fortnight]);
+  }, [refMonth]);
 
   useEffect(() => {
     setFormData(prev => {
@@ -215,19 +191,16 @@ export default function App() {
         return prev;
       }
 
-      return { ...prev, date: getPeriodAnchorDate(refMonth, fortnight) };
+      return { ...prev, date: getPeriodAnchorDate(refMonth), competenceMonth: refMonth };
     });
-  }, [refMonth, fortnight]);
+  }, [refMonth]);
 
   const transactions = useMemo(() => {
     return allTransactions.filter(t => {
-      if (!t.date) return false;
-      const tMonth = getDateMonthPart(t.date);
-      const tDay = getDateDayOfMonth(t.date);
-      const tFortnight = tDay && tDay <= 15 ? 1 : 2;
-      return tMonth === refMonth && tFortnight === fortnight;
+      const tMonth = t.competenceMonth || getDateMonthPart(t.date);
+      return tMonth === refMonth;
     });
-  }, [allTransactions, refMonth, fortnight]);
+  }, [allTransactions, refMonth]);
 
   const revenueTransactions = useMemo(() => {
     return transactions.filter(t => t.type === TransactionType.REVENUE);
@@ -236,8 +209,38 @@ export default function App() {
   const result = useMemo(() => calculateDistribution(transactions), [transactions]);
 
   const pendingInvoicesCount = useMemo(() => {
-    return transactions.filter(t => t.type === TransactionType.REVENUE && !t.issuedAt).length;
-  }, [transactions]);
+    return transactions.filter(t => {
+      if (t.type !== TransactionType.REVENUE) return false;
+      const invoice = invoices.find((item) => t.id && item.transactionIds.includes(t.id));
+      return !invoice || invoice.status === 'draft' || invoice.status === 'cancelled';
+    }).length;
+  }, [invoices, transactions]);
+
+  const currentClosing = useMemo(() => {
+    return monthlyClosings.find((closing) => closing.month === refMonth) || null;
+  }, [monthlyClosings, refMonth]);
+
+  const closingDiffersFromLive = useMemo(() => {
+    if (!currentClosing) return false;
+    return Math.abs(currentClosing.totalRevenue - result.realizedRevenue) > 0.01
+      || Math.abs(currentClosing.totalCOGS - result.totalCOGS) > 0.01
+      || Math.abs(currentClosing.totalOpEx - result.totalOpEx) > 0.01
+      || Math.abs(currentClosing.externalCommissions - result.externalCommissions) > 0.01
+      || Math.abs(currentClosing.originationFee - result.originationFee) > 0.01
+      || Math.abs(currentClosing.reserve - result.companyReserve) > 0.01
+      || Math.abs(currentClosing.distributableProfit - result.distributableBalance) > 0.01;
+  }, [currentClosing, result]);
+
+  const availableMonths = useMemo(() => {
+    const months = new Set<string>([INITIAL_REF_MONTH]);
+    allTransactions.forEach((transaction) => {
+      const month = transaction.competenceMonth || getDateMonthPart(transaction.date);
+      if (month) months.add(month);
+    });
+    monthlyClosings.forEach((closing) => months.add(closing.month));
+    months.add(refMonth);
+    return Array.from(months).sort((a, b) => b.localeCompare(a));
+  }, [allTransactions, monthlyClosings, refMonth]);
 
   const handleAddTransaction = async (openInvoice: boolean = false) => {
     try {
@@ -258,7 +261,8 @@ export default function App() {
       } else {
         const newTransactionPayload = {
           ...formData,
-          date: formData.date || getPeriodAnchorDate(refMonth, fortnight)
+          date: formData.date || getPeriodAnchorDate(refMonth),
+          competenceMonth: formData.competenceMonth || getDateMonthPart(formData.date) || refMonth
         };
 
         const created = await TransactionService.create(newTransactionPayload);
@@ -288,17 +292,19 @@ export default function App() {
         }
       }
 
-      const targetMonth = getDateMonthPart(savedTransaction.date);
-      const targetDay = getDateDayOfMonth(savedTransaction.date);
-      const targetFortnight: 1 | 2 = targetDay && targetDay <= 15 ? 1 : 2;
-      if (targetMonth && (targetMonth !== refMonth || targetFortnight !== fortnight)) {
+      const targetMonth = savedTransaction.competenceMonth || getDateMonthPart(savedTransaction.date);
+      if (targetMonth && targetMonth !== refMonth) {
         setRefMonth(targetMonth);
-        setFortnight(targetFortnight);
+      }
+      if (targetMonth && monthlyClosings.some((closing) => closing.month === targetMonth)) {
+        setSaveFeedback({
+          kind: 'error',
+          message: 'Este mês possui um fechamento salvo. A visão ao vivo pode diferir do fechamento oficial.'
+        });
       }
 
       const nextMonth = targetMonth || refMonth;
-      const nextFortnight = targetMonth ? targetFortnight : fortnight;
-      setFormData(createFormState(nextMonth, nextFortnight, formData.type));
+      setFormData(createFormState(nextMonth, formData.type));
       setFormResetToken(prev => prev + 1);
       if (window.innerWidth < 1024) {
         setActiveTab('dashboard');
@@ -319,6 +325,13 @@ export default function App() {
 
   const handleEditTransaction = (transaction: FinancialData) => {
     setSaveFeedback(null);
+    const transactionMonth = transaction.competenceMonth || getDateMonthPart(transaction.date);
+    if (transactionMonth && monthlyClosings.some((closing) => closing.month === transactionMonth)) {
+      setSaveFeedback({
+        kind: 'error',
+        message: 'Este mês possui um fechamento salvo. Editar lançamentos pode criar diferença entre a visão ao vivo e o fechamento oficial.'
+      });
+    }
     setFormData(transaction);
     setActiveTab('form');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -326,7 +339,7 @@ export default function App() {
 
   const handleCancelEdit = () => {
     setSaveFeedback(null);
-    setFormData(createFormState(refMonth, fortnight, formData.type));
+    setFormData(createFormState(refMonth, formData.type));
     setFormResetToken(prev => prev + 1);
   };
 
@@ -352,14 +365,9 @@ export default function App() {
   const handleClearForm = () => {
     if (confirm('Limpar os dados do formulário atual?')) {
       setSaveFeedback(null);
-      setFormData(createFormState(refMonth, fortnight, formData.type));
+      setFormData(createFormState(refMonth, formData.type));
       setFormResetToken(prev => prev + 1);
     }
-  };
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    setSession(null);
   };
 
   const periodLabel = useMemo(() => {
@@ -367,45 +375,121 @@ export default function App() {
     const date = new Date(year, month - 1, 1);
     const monthName = date.toLocaleString('pt-BR', { month: 'long' });
     const capitalizedMonth = monthName.charAt(0).toUpperCase() + monthName.slice(1);
-    return fortnight === 1 ? `1ª Quin: 01-15 ${capitalizedMonth}` : `2ª Quin: 16-fim ${capitalizedMonth}`;
-  }, [refMonth, fortnight]);
+    return `${capitalizedMonth} ${year}`;
+  }, [refMonth]);
 
   const navigatePeriod = (direction: 'prev' | 'next') => {
     let [year, month] = refMonth.split('-').map(Number);
-    let newFortnight: 1 | 2 = fortnight;
     if (direction === 'prev') {
-      if (fortnight === 2) newFortnight = 1;
-      else { newFortnight = 2; month--; if (month === 0) { month = 12; year--; } }
+      month--;
+      if (month === 0) {
+        month = 12;
+        year--;
+      }
     } else {
-      if (fortnight === 1) newFortnight = 2;
-      else { newFortnight = 1; month++; if (month === 13) { month = 1; year++; } }
+      month++;
+      if (month === 13) {
+        month = 1;
+        year++;
+      }
     }
     setRefMonth(`${year}-${month.toString().padStart(2, '0')}`);
-    setFortnight(newFortnight);
   };
 
   const isCurrentPeriod = useMemo(() => {
     const now = new Date();
-    return refMonth === getLocalMonthPart(now) && fortnight === (now.getDate() <= 15 ? 1 : 2);
-  }, [refMonth, fortnight]);
+    return refMonth === getLocalMonthPart(now);
+  }, [refMonth]);
 
-  // Auth Loading Screen
-  if (loadingAuth) {
-    return (
-      <div className="min-h-screen bg-[#F8F9FA] flex flex-col items-center justify-center">
-        <div className="scale-125 mb-8 animate-pulse"><Logo variant="dark" /></div>
-        <Loader2 className="w-8 h-8 text-[#1A1C22] animate-spin" />
-        <p className="text-[#6C757D] text-xs mt-4 font-medium">Carregando...</p>
-      </div>
-    );
-  }
+  const handleCloseMonth = async () => {
+    if (transactions.length === 0) {
+      alert('Não há lançamentos para fechar neste mês.');
+      return;
+    }
 
-  // Not Authenticated -> Show Login
-  if (!session) {
-    return <Login />;
-  }
+    const existingText = currentClosing ? ' Isso substituirá o fechamento oficial existente para este mês.' : '';
+    if (!confirm(`Fechar ${periodLabel}?${existingText}`)) return;
 
-  // Authenticated -> Show Dashboard
+    const notes = prompt('Notas opcionais do fechamento:', currentClosing?.notes || '') || undefined;
+    const closing = await MonthlyClosingService.closeMonth(refMonth, transactions, result, notes);
+    setMonthlyClosings(prev => [...prev.filter(item => item.month !== refMonth), closing]);
+    setSaveFeedback({ kind: 'success', message: `Fechamento oficial de ${periodLabel} salvo localmente.` });
+  };
+
+  const handleExportAll = async () => {
+    const json = await LocalBackupService.exportAll();
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `onebridge-cfo-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportAll = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json,.json';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+
+      try {
+        await LocalBackupService.importAll(await file.text());
+        const [transactions, closings, localInvoices] = await Promise.all([
+          TransactionService.fetchAll(),
+          MonthlyClosingService.fetchAll(),
+          InvoiceService.fetchAll(),
+        ]);
+        setAllTransactions(transactions);
+        setMonthlyClosings(closings);
+        setInvoices(localInvoices);
+        setSaveFeedback({ kind: 'success', message: 'Backup importado com sucesso.' });
+      } catch (error) {
+        console.error(error);
+        setSaveFeedback({ kind: 'error', message: 'Não foi possível importar o backup.' });
+      }
+    };
+    input.click();
+  };
+
+  const handleResetLocalData = async () => {
+    if (!confirm('Apagar todas as transações, fechamentos e opções locais? Esta ação não pode ser desfeita.')) return;
+
+    await LocalBackupService.resetAll();
+    setAllTransactions([]);
+    setMonthlyClosings([]);
+    setInvoices([]);
+    setFormData(createFormState(refMonth, formData.type));
+    setFormResetToken(prev => prev + 1);
+    setSaveFeedback({ kind: 'success', message: 'Dados locais reiniciados.' });
+  };
+
+  const handleSeedDemoData = async () => {
+    if (!IS_DEV) return;
+    if (!confirm('Substituir TODOS os dados locais por dados de demonstração (2 meses)? Esta ação não pode ser desfeita.')) return;
+
+    try {
+      await DemoDataService.seed();
+      const [seededTransactions, closings, localInvoices] = await Promise.all([
+        TransactionService.fetchAll(),
+        MonthlyClosingService.fetchAll(),
+        InvoiceService.fetchAll(),
+      ]);
+      setAllTransactions(seededTransactions);
+      setMonthlyClosings(closings);
+      setInvoices(localInvoices);
+      setRefMonth(DemoDataService.OPEN_MONTH_KEY);
+      setFormData(createFormState(DemoDataService.OPEN_MONTH_KEY, formData.type));
+      setFormResetToken(prev => prev + 1);
+      setSaveFeedback({ kind: 'success', message: 'Dados de demonstração carregados (2 meses, invoices e fechamento incluídos).' });
+    } catch (error) {
+      console.error(error);
+      setSaveFeedback({ kind: 'error', message: 'Não foi possível carregar os dados de demonstração.' });
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#F8F9FA] pb-24 lg:pb-12 print:bg-white print:pb-0 font-sans">
       <div className="print:hidden">
@@ -425,6 +509,15 @@ export default function App() {
                   <p className="hidden lg:flex text-[9px] text-[#6C757D] tracking-widest uppercase font-bold items-center gap-1">{isCurrentPeriod ? 'Período Atual' : <span className="text-amber-500 flex items-center gap-1"><History className="w-2.5 h-2.5" /> Histórico</span>}</p>
                   <div className="text-[#1A1C22] font-black text-[10px] lg:text-xs tracking-tight uppercase whitespace-nowrap">{periodLabel}</div>
                 </div>
+                <select
+                  value={refMonth}
+                  onChange={(event) => setRefMonth(event.target.value)}
+                  className="hidden lg:block bg-white border border-slate-200 rounded-lg px-2 py-1 text-[10px] font-bold text-slate-600 outline-none"
+                >
+                  {availableMonths.map((month) => (
+                    <option key={month} value={month}>{month}</option>
+                  ))}
+                </select>
                 <button onClick={() => navigatePeriod('next')} className="p-1 lg:p-1.5 hover:bg-white hover:shadow-sm rounded-lg text-slate-400 hover:text-slate-700 transition-all"><ChevronRight className="w-4 h-4 lg:w-5 lg:h-5" /></button>
               </div>
             </div>
@@ -448,12 +541,20 @@ export default function App() {
               <button onClick={handleClearForm} className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 text-[#6C757D] hover:text-[#1A1C22] text-xs rounded-lg border border-transparent hover:border-slate-200 transition-all">
                 <Eraser className="w-3 h-3" /> Limpar
               </button>
-
-              <div className="w-px h-6 bg-slate-200 mx-1"></div>
-
-              <button onClick={handleLogout} className="flex items-center gap-2 px-3 py-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 text-xs rounded-lg border border-transparent hover:border-red-100 transition-colors" title="Sair do Sistema">
-                <LogOut className="w-4 h-4" />
+              <button onClick={handleExportAll} className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 text-[#6C757D] hover:text-[#1A1C22] text-xs rounded-lg border border-transparent hover:border-slate-200 transition-all">
+                <Download className="w-3 h-3" /> Exportar
               </button>
+              <button onClick={handleImportAll} className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 text-[#6C757D] hover:text-[#1A1C22] text-xs rounded-lg border border-transparent hover:border-slate-200 transition-all">
+                <Upload className="w-3 h-3" /> Importar
+              </button>
+              <button onClick={handleResetLocalData} className="flex items-center gap-2 px-3 py-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 text-xs rounded-lg border border-transparent hover:border-red-100 transition-colors">
+                <RotateCcw className="w-3 h-3" /> Reset
+              </button>
+              {IS_DEV && (
+                <button onClick={handleSeedDemoData} title="Dev only: substitui os dados locais por um cenário de demonstração" className="flex items-center gap-2 px-3 py-1.5 text-indigo-500 hover:bg-indigo-50 hover:text-indigo-700 text-xs rounded-lg border border-dashed border-indigo-200 hover:border-indigo-300 transition-colors">
+                  <FlaskConical className="w-3 h-3" /> Demo
+                </button>
+              )}
             </div>
 
             {/* Mobile Actions (Condensed) */}
@@ -466,8 +567,8 @@ export default function App() {
               <button onClick={() => setIsReportModalOpen(true)} className="p-2 text-[#6C757D] hover:bg-slate-100 rounded-lg">
                 <FileBarChart className="w-5 h-5" />
               </button>
-              <button onClick={handleLogout} className="p-2 text-slate-400 hover:bg-red-50 hover:text-red-500 rounded-lg">
-                <LogOut className="w-5 h-5" />
+              <button onClick={handleExportAll} className="p-2 text-[#6C757D] hover:bg-slate-100 rounded-lg">
+                <Download className="w-5 h-5" />
               </button>
             </div>
           </div>
@@ -477,7 +578,7 @@ export default function App() {
 
           {loadingData && (
             <div className="mb-4 p-2 bg-blue-50 text-blue-600 rounded-lg text-center text-xs">
-              Sincronizando dados...
+              Carregando dados locais...
             </div>
           )}
 
@@ -492,6 +593,73 @@ export default function App() {
               {saveFeedback.message}
             </div>
           )}
+
+          <div className="mb-6 overflow-hidden rounded-xl border border-[#D8B98B]/40 bg-white shadow-sm">
+            <div className="border-b border-[#E7DED0] bg-[#102033] px-5 py-4 text-white">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-[#D8B98B]">Onebridge Monthly Command View</p>
+                  <h1 className="mt-1 text-xl font-black tracking-tight">{periodLabel}</h1>
+                </div>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {[
+                    ['Receita realizada', result.realizedRevenue],
+                    ['Lucro bruto', result.grossMargin],
+                    ['Lucro operacional', result.netIncome],
+                    ['Distribuível', result.distributableBalance],
+                  ].map(([label, value]) => (
+                    <div key={label as string} className="min-w-[120px] rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                      <p className="text-[9px] font-bold uppercase tracking-wide text-slate-300">{label as string}</p>
+                      <p className="mt-1 font-mono text-sm font-black text-white">{formatCurrency(value as number)}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="p-5">
+                <div className="flex items-center gap-2 text-sm font-black text-slate-900 uppercase">
+                  {currentClosing ? <LockKeyhole className="w-4 h-4 text-[#B9824A]" /> : <Calendar className="w-4 h-4 text-slate-500" />}
+                  Fechamento mensal
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  {currentClosing
+                    ? `Fechado em ${formatDisplayDate(currentClosing.closedAt)}. Oficial: ${formatCurrency(currentClosing.distributableProfit)} distribuível.`
+                    : 'Este mês ainda não possui fechamento oficial salvo.'}
+                </p>
+                {currentClosing && (
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-[10px] text-slate-600 lg:grid-cols-4">
+                    <span>Live receita: {formatCurrency(result.realizedRevenue)}</span>
+                    <span>Oficial receita: {formatCurrency(currentClosing.totalRevenue)}</span>
+                    <span>Live distrib.: {formatCurrency(result.distributableBalance)}</span>
+                    <span>Oficial distrib.: {formatCurrency(currentClosing.distributableProfit)}</span>
+                  </div>
+                )}
+                {closingDiffersFromLive && (
+                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-amber-800">
+                    A visão ao vivo difere do fechamento oficial salvo.
+                  </div>
+                )}
+                <p className="mt-3 text-[10px] font-semibold text-amber-700">
+                  Local-first mode: seus dados ficam salvos neste navegador. Exporte backups regulares para preservar o histórico financeiro.
+                </p>
+              </div>
+              <div className="px-5 pb-5 lg:pb-0">
+                <div className="mb-3 grid grid-cols-2 gap-2 text-[10px] text-slate-500">
+                  <span>Reserva: <b className="text-slate-900">{formatCurrency(result.companyReserve)}</b></span>
+                  <span>Payables: <b className="text-slate-900">{formatCurrency(result.pendingPayables)}</b></span>
+                  <span>Invoices pendentes: <b className="text-slate-900">{pendingInvoicesCount}</b></span>
+                  <span>Transações: <b className="text-slate-900">{transactions.length}</b></span>
+                </div>
+                <button
+                  onClick={handleCloseMonth}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#102033] px-4 py-2 text-xs font-bold text-white shadow-sm transition-colors hover:bg-[#071425] lg:w-auto"
+                >
+                  <LockKeyhole className="w-4 h-4 text-[#D8B98B]" /> Fechar mês
+                </button>
+              </div>
+            </div>
+          </div>
 
           {/* Dashboard View Switcher (Desktop & Mobile if tab is dashboard) */}
           {(activeTab === 'dashboard' || window.innerWidth >= 1024) && (
@@ -536,6 +704,7 @@ export default function App() {
                 )}
                 <TransactionList
                   transactions={transactions}
+                  invoices={invoices}
                   onRemove={handleRemoveTransaction}
                   onGenerateInvoice={setSelectedInvoiceTransaction}
                   onEdit={handleEditTransaction}
@@ -569,6 +738,7 @@ export default function App() {
               )}
               <TransactionList
                 transactions={transactions}
+                invoices={invoices}
                 onRemove={handleRemoveTransaction}
                 onGenerateInvoice={setSelectedInvoiceTransaction}
                 onEdit={handleEditTransaction}
@@ -609,22 +779,38 @@ export default function App() {
         </div>
       </div>
 
-      <InvoiceModal transaction={selectedInvoiceTransaction} onClose={() => setSelectedInvoiceTransaction(null)} />
+      <InvoiceModal
+        transaction={selectedInvoiceTransaction}
+        invoice={invoices.find((invoice) => selectedInvoiceTransaction?.id && invoice.transactionIds.includes(selectedInvoiceTransaction.id)) || null}
+        onInvoiceSaved={async (invoice, transactionUpdate) => {
+          setInvoices(prev => [...prev.filter(item => item.id !== invoice.id), invoice]);
+          if (transactionUpdate) {
+            const updated = await TransactionService.update(transactionUpdate);
+            setAllTransactions(prev => prev.map(transaction => transaction.id === updated.id ? updated : transaction));
+            setSelectedInvoiceTransaction(updated);
+          }
+        }}
+        onClose={() => setSelectedInvoiceTransaction(null)}
+      />
       {isReportModalOpen && (
         <ReportModal
           result={result}
           transactions={allTransactions}
+          closings={monthlyClosings}
           onClose={() => setIsReportModalOpen(false)}
           initialMonth={refMonth}
-          initialFortnight={fortnight}
-          onPeriodChange={(m, f) => { setRefMonth(m); setFortnight(f as 1 | 2); }}
+          onPeriodChange={(month) => { setRefMonth(month); }}
         />
       )}
       {isBatchModalOpen && (
         <BatchProcessModal
           transactions={transactions}
+          invoices={invoices}
           onClose={() => setIsBatchModalOpen(false)}
-          onComplete={(updated) => {
+          onComplete={async (updated, updatedInvoices) => {
+            await TransactionService.upsertMany(updated);
+            await InvoiceService.replaceAll(updatedInvoices);
+            setInvoices(updatedInvoices);
             setAllTransactions(prev => {
               const otherTransactions = prev.filter(t => !transactions.find(ct => ct.id === t.id));
               return [...otherTransactions, ...updated];

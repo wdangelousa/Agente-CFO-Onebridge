@@ -1,17 +1,18 @@
 
 import React, { useMemo } from 'react';
-import { FinancialData, TransactionType, TransactionStatus, ExpenseCategory } from '../types';
+import { FinancialData, InvoiceRecord, TransactionType, TransactionStatus, ExpenseCategory } from '../types';
 import { formatDisplayDate } from '../utils/date';
 import { Trash2, FileText, CheckCircle2, Clock, Pencil, Layers, Briefcase, Paperclip, Files } from 'lucide-react';
 
 interface Props {
   transactions: FinancialData[];
+  invoices: InvoiceRecord[];
   onRemove: (id: string) => void;
   onGenerateInvoice: (transaction: FinancialData) => void;
   onEdit: (transaction: FinancialData) => void;
 }
 
-export const TransactionList: React.FC<Props> = ({ transactions, onRemove, onGenerateInvoice, onEdit }) => {
+export const TransactionList: React.FC<Props> = ({ transactions, invoices, onRemove, onGenerateInvoice, onEdit }) => {
   const formatCurrency = (val: number, currency: string = 'USD') => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency }).format(val || 0);
   };
@@ -139,7 +140,8 @@ export const TransactionList: React.FC<Props> = ({ transactions, onRemove, onGen
               const grossRevenue = revenue.grossRevenue || 0;
               const contributionMargin = grossRevenue - totalCosts;
               const marginPercent = grossRevenue > 0 ? (contributionMargin / grossRevenue) * 100 : 0;
-              const isIssued = !!revenue.issuedAt;
+              const invoice = invoices.find((item) => revenue.id && item.transactionIds.includes(revenue.id));
+              const isIssued = !!invoice && invoice.status !== 'draft' && invoice.status !== 'cancelled';
 
               return (
                 <div
@@ -160,7 +162,12 @@ export const TransactionList: React.FC<Props> = ({ transactions, onRemove, onGen
                             <h4 className="font-bold text-slate-900 text-sm sm:text-base truncate leading-tight mr-1">{revenue.description}</h4>
                             {isIssued && (
                               <span className="text-[9px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-md font-bold border border-emerald-200/50 whitespace-nowrap">
-                                FATURADO
+                                {invoice?.status === 'paid' ? 'INVOICE PAGA' : 'FATURADO'}
+                              </span>
+                            )}
+                            {!isIssued && (
+                              <span className="text-[9px] bg-slate-50 text-slate-500 px-2 py-0.5 rounded-md font-bold border border-slate-200/80 whitespace-nowrap">
+                                SEM INVOICE
                               </span>
                             )}
                           </div>
@@ -170,6 +177,12 @@ export const TransactionList: React.FC<Props> = ({ transactions, onRemove, onGen
                             </span>
                             <span className="text-slate-300 hidden sm:inline">•</span>
                             <span className="text-slate-600 font-medium truncate max-w-full sm:max-w-[200px]">{revenue.serviceType || 'Serviço Geral'}</span>
+                            {invoice && (
+                              <>
+                                <span className="text-slate-300 hidden sm:inline">•</span>
+                                <span className="font-mono text-slate-500">{invoice.invoiceNumber}</span>
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>

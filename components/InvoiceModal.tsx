@@ -1,19 +1,23 @@
 
 import React, { useState, useEffect } from 'react';
-import { FinancialData, PaymentMethod, ClientType } from '../types';
+import { FinancialData, InvoiceRecord, InvoiceStatus, PaymentMethod } from '../types';
 import { Logo } from './Logo';
-import { sendInvoiceNotification, sendInvoiceToClient } from '../services/emailService';
-import { X, Printer, Download, CreditCard, Smartphone, Landmark, QrCode, Mail, Send, CheckCircle2, Loader2, FileCheck, Share2, PencilLine } from 'lucide-react';
+import { InvoiceService } from '../services/invoiceService';
+import { X, Printer, Download, CreditCard, Smartphone, Landmark, QrCode, CheckCircle2, Loader2, Share2, PencilLine } from 'lucide-react';
 
 interface Props {
   transaction: FinancialData | null;
+  invoice: InvoiceRecord | null;
+  onInvoiceSaved: (invoice: InvoiceRecord, transactionUpdate?: FinancialData) => Promise<void> | void;
   onClose: () => void;
 }
 
-export const InvoiceModal: React.FC<Props> = ({ transaction, onClose }) => {
+export const InvoiceModal: React.FC<Props> = ({ transaction, invoice, onInvoiceSaved, onClose }) => {
+  const [localInvoice, setLocalInvoice] = useState<InvoiceRecord | null>(invoice);
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [issueDate, setIssueDate] = useState('');
   const [dueDate, setDueDate] = useState('');
+  const [status, setStatus] = useState<InvoiceStatus>('draft');
   
   // Client Data States (Editable directly on Invoice)
   const [clientName, setClientName] = useState('');
@@ -23,34 +27,52 @@ export const InvoiceModal: React.FC<Props> = ({ transaction, onClose }) => {
   const [responsibleName, setResponsibleName] = useState('');
   const [serviceDescription, setServiceDescription] = useState('');
   
-  const [sendingStakeholders, setSendingStakeholders] = useState(false);
+  const [savingInvoice, setSavingInvoice] = useState(false);
   const [stakeholdersNotified, setStakeholdersNotified] = useState(false);
-  
-  const [sendingClient, setSendingClient] = useState(false);
-  const [clientNotified, setClientNotified] = useState(false);
 
   useEffect(() => {
-    if (transaction) {
+    let isMounted = true;
+
+    const loadInvoice = async () => {
+      if (!transaction) return;
+
+      const existingInvoice = invoice || (transaction.id && transaction.id !== 'manual'
+        ? await InvoiceService.getOrCreateForTransaction(transaction)
+        : null);
+
+      if (!isMounted) return;
+
       const today = new Date();
       const due = new Date();
-      due.setDate(today.getDate() + 14); 
+      due.setDate(today.getDate() + 14);
+      const activeInvoice = existingInvoice;
 
-      setInvoiceNumber(transaction.invoiceNumber || `INV-${today.getFullYear()}${(today.getMonth()+1).toString().padStart(2, '0')}-${Math.floor(Math.random() * 1000)}`);
-      setIssueDate(transaction.issuedAt ? transaction.issuedAt.split('T')[0] : today.toISOString().split('T')[0]);
-      setDueDate(due.toISOString().split('T')[0]);
-      
-      // Auto-fill from Transaction Data
-      setClientName(transaction.description);
+      setLocalInvoice(activeInvoice);
+      setInvoiceNumber(activeInvoice?.invoiceNumber || `OBS-${today.getFullYear()}-PREVIEW`);
+      setIssueDate(activeInvoice?.issuedAt ? activeInvoice.issuedAt.split('T')[0] : today.toISOString().split('T')[0]);
+      setDueDate(activeInvoice?.dueDate || due.toISOString().split('T')[0]);
+      setStatus(activeInvoice?.status || 'draft');
+      setClientName(activeInvoice?.clientName || transaction.description);
       setClientAddress(transaction.clientAddress || '');
       setClientTaxId(transaction.clientTaxId || '');
       setClientEmail(transaction.clientEmail || '');
       setResponsibleName(transaction.responsibleName || '');
-      setServiceDescription(transaction.serviceType || 'Professional Services');
-      
-      setStakeholdersNotified(!!transaction.issuedAt);
-      setClientNotified(false);
+      setServiceDescription(activeInvoice?.description || transaction.serviceType || 'Professional Services');
+      setStakeholdersNotified(activeInvoice?.status === 'issued' || activeInvoice?.status === 'paid');
+    };
+
+    loadInvoice();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [invoice, transaction]);
+
+  useEffect(() => {
+    if (transaction) {
+      setStakeholdersNotified(status === 'issued' || status === 'paid');
     }
-  }, [transaction]);
+  }, [status, transaction]);
 
   if (!transaction) return null;
 
@@ -58,45 +80,91 @@ export const InvoiceModal: React.FC<Props> = ({ transaction, onClose }) => {
     window.print();
   };
 
-  const handleNotifyStakeholders = async () => {
-    setSendingStakeholders(true);
+  const persistInvoice = async (nextStatus: InvoiceStatus = status) => {
+    if (!transaction || !transaction.id || transaction.id === 'manual') {
+      alert('Salve a receita antes de protocolar a invoice.');
+      return;
+    }
+
+    setSavingInvoice(true);
     try {
-      await sendInvoiceNotification(invoiceNumber, clientName, transaction.grossRevenue);
-      setStakeholdersNotified(true);
+      const issuedAtIso = `${issueDate}T12:00:00.000Z`;
+      const saved = await InvoiceService.issueForTransaction(transaction, {
+        status: nextStatus,
+        issuedAt: localInvoice?.issuedAt || issuedAtIso,
+        dueDate,
+        clientName,
+        payerName: clientName,
+        description: serviceDescription,
+        subtotal: transaction.grossRevenue,
+        total: transaction.grossRevenue,
+        currency: transaction.currency || 'USD',
+      });
+
+      const transactionUpdate = {
+        ...transaction,
+        invoiceId: saved.id,
+        invoiceNumber: saved.invoiceNumber,
+        issuedAt: saved.issuedAt,
+      };
+
+      setLocalInvoice(saved);
+      setInvoiceNumber(saved.invoiceNumber);
+      setStatus(saved.status);
+      setStakeholdersNotified(saved.status === 'issued' || saved.status === 'paid');
+      await onInvoiceSaved(saved, transactionUpdate);
     } catch (error) {
-      alert("Erro ao enviar notificações internas.");
+      console.error(error);
+      alert('Erro ao salvar invoice localmente.');
     } finally {
-      setSendingStakeholders(false);
+      setSavingInvoice(false);
     }
   };
 
-  const handleNotifyClient = async () => {
-    if (!clientEmail) {
-      alert("E-mail do cliente não encontrado nos dados da transação.");
+  const handleStatusChange = async (nextStatus: InvoiceStatus) => {
+    if (!localInvoice) {
+      await persistInvoice(nextStatus);
       return;
     }
-    setSendingClient(true);
-    try {
-      await sendInvoiceToClient(invoiceNumber, clientEmail);
-      setClientNotified(true);
-    } catch (error) {
-      alert("Erro ao enviar para o cliente.");
-    } finally {
-      setSendingClient(false);
-    }
+
+    const updated = await InvoiceService.update({
+      ...localInvoice,
+      status: nextStatus,
+      clientName,
+      payerName: clientName,
+      description: serviceDescription,
+      dueDate,
+    });
+    setLocalInvoice(updated);
+    setStatus(updated.status);
+    await onInvoiceSaved(updated);
   };
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
   };
 
+  const statusStyles: Record<InvoiceStatus, string> = {
+    draft: 'border-slate-300 bg-slate-100 text-slate-600',
+    issued: 'border-[#B9824A]/40 bg-[#B9824A]/10 text-[#7A4E24]',
+    paid: 'border-emerald-300 bg-emerald-50 text-emerald-700',
+    cancelled: 'border-red-300 bg-red-50 text-red-700',
+  };
+
+  const statusLabel: Record<InvoiceStatus, string> = {
+    draft: 'Draft',
+    issued: 'Issued',
+    paid: 'Paid',
+    cancelled: 'Cancelled',
+  };
+
   const renderPaymentInstructions = () => {
      switch (transaction.paymentMethod) {
         case PaymentMethod.ZELLE:
            return (
-              <div className="bg-purple-50 p-6 rounded-lg border border-purple-100 print:bg-slate-50 print:border-slate-200 break-inside-avoid">
-                  <h3 className="text-sm font-bold text-purple-900 uppercase mb-4 flex items-center gap-2">
-                    <Smartphone className="w-4 h-4 text-purple-600" />
+              <div className="bg-[#FBF7F0] p-6 rounded-lg border border-[#D8B98B]/50 print:bg-white print:border-slate-300 break-inside-avoid">
+                  <h3 className="text-sm font-bold text-[#102033] uppercase mb-4 flex items-center gap-2 tracking-wide">
+                    <Smartphone className="w-4 h-4 text-[#B9824A]" />
                     Zelle Payment Instructions
                   </h3>
                   <div className="space-y-2 text-sm text-slate-600">
@@ -108,9 +176,9 @@ export const InvoiceModal: React.FC<Props> = ({ transaction, onClose }) => {
            );
         case PaymentMethod.PARCELADO_USA:
            return (
-              <div className="bg-blue-50 p-6 rounded-lg border border-blue-100 print:bg-slate-50 print:border-slate-200 break-inside-avoid">
-                  <h3 className="text-sm font-bold text-blue-900 uppercase mb-4 flex items-center gap-2">
-                    <CreditCard className="w-4 h-4 text-blue-600" />
+              <div className="bg-[#F5F7FA] p-6 rounded-lg border border-slate-200 print:bg-white print:border-slate-300 break-inside-avoid">
+                  <h3 className="text-sm font-bold text-[#102033] uppercase mb-4 flex items-center gap-2 tracking-wide">
+                    <CreditCard className="w-4 h-4 text-[#B9824A]" />
                     Credit Card / Installments
                   </h3>
                   <div className="space-y-4 text-sm text-slate-600">
@@ -131,9 +199,9 @@ export const InvoiceModal: React.FC<Props> = ({ transaction, onClose }) => {
            );
         default: // WIRE
            return (
-              <div className="bg-slate-50 p-6 rounded-lg border border-slate-100 print:bg-slate-50 print:border-slate-200 break-inside-avoid">
-                 <h3 className="text-sm font-bold text-slate-800 uppercase mb-4 flex items-center gap-2">
-                   <Landmark className="w-4 h-4 text-emerald-600" />
+              <div className="bg-[#F7F3EC] p-6 rounded-lg border border-[#D8B98B]/60 print:bg-white print:border-slate-300 break-inside-avoid">
+                 <h3 className="text-sm font-bold text-[#102033] uppercase mb-4 flex items-center gap-2 tracking-wide">
+                   <Landmark className="w-4 h-4 text-[#B9824A]" />
                    Wire Transfer Instructions
                  </h3>
                  <div className="grid grid-cols-2 gap-4 text-sm text-slate-600">
@@ -149,15 +217,15 @@ export const InvoiceModal: React.FC<Props> = ({ transaction, onClose }) => {
 
   return (
     // QA FIX: Removed overflow-hidden and absolute positioning for print media to ensure pages don't get cut off.
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm print:relative print:bg-white print:p-0 print:block">
-      <div className="bg-white w-full max-w-4xl h-[92vh] rounded-2xl shadow-2xl flex flex-col print:h-auto print:shadow-none print:w-full print:max-w-none print:rounded-none overflow-hidden print:overflow-visible">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#071425]/70 backdrop-blur-sm print:relative print:bg-white print:p-0 print:block">
+      <div className="bg-white w-full max-w-5xl h-[92vh] rounded-2xl shadow-2xl flex flex-col print:h-auto print:shadow-none print:w-full print:max-w-none print:rounded-none overflow-hidden print:overflow-visible">
         
-        <div className="flex justify-between items-center p-5 border-b border-slate-200 print:hidden bg-slate-50">
+        <div className="flex justify-between items-center p-5 border-b border-[#E7DED0] print:hidden bg-[#F7F3EC]">
           <div className="flex flex-col">
-            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <h2 className="text-lg font-bold text-[#102033] flex items-center gap-2">
               Gestão de Invoice
               <span className="text-[10px] font-black text-slate-400 bg-slate-200 px-2 py-0.5 rounded tracking-widest uppercase">
-                AUTOMATED v4.0
+                Local Ledger
               </span>
             </h2>
             <p className="text-xs text-slate-500 mt-1">Os dados abaixo foram vinculados ao lançamento. Edite clicando no texto.</p>
@@ -169,9 +237,9 @@ export const InvoiceModal: React.FC<Props> = ({ transaction, onClose }) => {
           </div>
         </div>
 
-        <div className="flex-1 overflow-auto bg-slate-200/50 p-8 print:p-0 print:bg-white print:overflow-visible relative">
+        <div className="flex-1 overflow-auto bg-[#EDE7DC] p-8 print:p-0 print:bg-white print:overflow-visible relative">
           
-          {stakeholdersNotified && !sendingStakeholders && (
+          {stakeholdersNotified && !savingInvoice && (
              <div className="absolute inset-x-8 top-8 z-20 print:hidden">
                 <div className="bg-slate-900 text-white p-8 rounded-2xl shadow-2xl border-4 border-emerald-500/30 flex flex-col items-center text-center animate-in fade-in zoom-in duration-300 backdrop-blur-md">
                     <div className="bg-emerald-500/20 p-4 rounded-full mb-4 border border-emerald-500/50">
@@ -186,29 +254,36 @@ export const InvoiceModal: React.FC<Props> = ({ transaction, onClose }) => {
                           <Download className="w-6 h-6 text-emerald-400" />
                           <div><p className="font-black text-sm uppercase">Baixar PDF</p></div>
                        </button>
-                       <button onClick={handleNotifyClient} disabled={sendingClient || clientNotified || !clientEmail} className={`flex flex-col items-center justify-center gap-3 p-6 rounded-xl transition-all border ${clientNotified ? 'bg-emerald-900 border-emerald-700 text-emerald-200' : 'bg-emerald-600 border-emerald-500 text-white hover:bg-emerald-500'}`}>
-                          {sendingClient ? <Loader2 className="w-6 h-6 animate-spin" /> : clientNotified ? <CheckCircle2 className="w-6 h-6" /> : <Send className="w-6 h-6" />}
-                          <div><p className="font-black text-sm uppercase">{clientNotified ? 'Enviado!' : 'Enviar ao Cliente'}</p></div>
+                       <button onClick={() => handleStatusChange('paid')} disabled={status === 'paid'} className={`flex flex-col items-center justify-center gap-3 p-6 rounded-xl transition-all border ${status === 'paid' ? 'bg-emerald-900 border-emerald-700 text-emerald-200' : 'bg-emerald-600 border-emerald-500 text-white hover:bg-emerald-500'}`}>
+                          <CheckCircle2 className="w-6 h-6" />
+                          <div><p className="font-black text-sm uppercase">{status === 'paid' ? 'Paga' : 'Marcar paga'}</p></div>
                        </button>
                     </div>
-                    <button onClick={() => setStakeholdersNotified(false)} className="mt-8 text-slate-500 text-[10px] font-black uppercase tracking-widest hover:text-emerald-400 transition-colors">Voltar para Edição</button>
+                    <div className="mt-8 flex justify-center gap-6">
+                      <button onClick={() => setStakeholdersNotified(false)} className="text-slate-500 text-[10px] font-black uppercase tracking-widest hover:text-emerald-400 transition-colors">Voltar para Edição</button>
+                      <button onClick={() => handleStatusChange('cancelled')} className="text-red-300 text-[10px] font-black uppercase tracking-widest hover:text-red-400 transition-colors">Cancelar invoice</button>
+                    </div>
                 </div>
              </div>
           )}
 
-          <div className={`bg-white max-w-[210mm] mx-auto min-h-[297mm] shadow-xl p-[18mm] print:shadow-none print:m-0 print:w-full print:max-w-none print:h-auto text-slate-900 font-[Inter] border-t-8 border-slate-950 transition-all duration-500 ${stakeholdersNotified ? 'opacity-30 blur-sm scale-95 select-none pointer-events-none' : ''}`}>
+          <div className={`bg-white max-w-[210mm] mx-auto min-h-[297mm] shadow-xl p-[18mm] print:shadow-none print:m-0 print:w-full print:max-w-none print:h-auto text-slate-900 font-[Inter] border-t-[10px] border-[#102033] transition-all duration-500 print:border-t-4 print:opacity-100 print:blur-none print:scale-100 print:filter-none print:select-auto print:pointer-events-auto ${stakeholdersNotified ? 'opacity-30 blur-sm scale-95 select-none pointer-events-none' : ''}`}>
             
             {/* Header Invoice */}
-            <div className="flex justify-between items-start mb-12">
-              <div className="scale-90 origin-top-left"><Logo variant="dark" /></div>
+            <div className="flex justify-between items-start mb-12 border-b border-[#E7DED0] pb-8">
+              <div>
+                <div className="scale-90 origin-top-left"><Logo variant="dark" /></div>
+                <p className="mt-5 max-w-xs text-[10px] font-bold uppercase tracking-[0.22em] text-[#B9824A]">Institutional Advisory Invoice</p>
+              </div>
               <div className="text-right">
-                <h1 className="text-5xl font-black text-slate-100 tracking-tighter uppercase mb-4 opacity-30 select-none">Invoice</h1>
+                <h1 className="text-5xl font-black text-[#102033] tracking-tight uppercase mb-4 select-none">Invoice</h1>
                 <div className="flex flex-col items-end gap-1">
                   <div className="print:hidden relative group">
                      <PencilLine className="w-3 h-3 absolute -left-4 top-1.5 text-slate-300 opacity-0 group-hover:opacity-100" />
-                     <input type="text" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} className="text-right font-black text-xl text-slate-900 border-b border-transparent hover:border-slate-300 focus:border-emerald-500 outline-none w-48 bg-transparent transition-colors placeholder-slate-300" placeholder="Invoice #" />
+                     <input type="text" value={invoiceNumber} readOnly className="text-right font-black text-xl text-slate-900 border-b border-transparent outline-none w-48 bg-transparent transition-colors placeholder-slate-300" placeholder="Invoice #" />
                   </div>
                   <div className="hidden print:block text-slate-900 text-xl font-black">{invoiceNumber}</div>
+                  <div className={`mt-1 rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${statusStyles[status]}`}>{statusLabel[status]}</div>
                   
                   <div className="flex items-center gap-2 text-xs font-bold text-slate-500 mt-2">
                     <span>Issued:</span>
@@ -223,15 +298,15 @@ export const InvoiceModal: React.FC<Props> = ({ transaction, onClose }) => {
             </div>
 
             {/* Addresses */}
-            <div className="grid grid-cols-2 gap-16 mb-16 items-start">
-              <div>
-                <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 border-b border-slate-100 pb-2">From</h3>
+            <div className="grid grid-cols-1 gap-10 mb-14 items-start sm:grid-cols-2 sm:gap-16">
+              <div className="rounded-lg border border-[#E7DED0] bg-[#FBF8F2] p-5 print:bg-white">
+                <h3 className="text-[10px] font-black text-[#B9824A] uppercase tracking-widest mb-4 border-b border-[#E7DED0] pb-2">From</h3>
                 <p className="font-black text-slate-900 text-lg">ONEBRIDGE STALWART LLC</p>
-                <p className="text-sm text-slate-500 mt-2 leading-relaxed">30 N Gould St Ste R<br />Sheridan, WY 82801<br />United States<br /><span className="font-medium text-emerald-600">finance@onebridge.llc</span></p>
+                <p className="text-sm text-slate-500 mt-2 leading-relaxed">30 N Gould St Ste R<br />Sheridan, WY 82801<br />United States<br /><span className="font-medium text-[#7A4E24]">finance@onebridge.llc</span></p>
               </div>
               
-              <div className="group relative">
-                <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 border-b border-slate-100 pb-2 flex items-center justify-between">
+              <div className="group relative rounded-lg border border-[#E7DED0] p-5">
+                <h3 className="text-[10px] font-black text-[#B9824A] uppercase tracking-widest mb-4 border-b border-[#E7DED0] pb-2 flex items-center justify-between">
                    Bill To
                    <span className="print:hidden text-[9px] text-emerald-600 normal-case bg-emerald-50 px-2 py-0.5 rounded-full flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><PencilLine className="w-3 h-3" /> Editável</span>
                 </h3>
@@ -291,9 +366,9 @@ export const InvoiceModal: React.FC<Props> = ({ transaction, onClose }) => {
               </div>
             </div>
 
-            <div className="mb-16">
+            <div className="mb-12">
               <table className="w-full text-left">
-                <thead><tr className="border-b-4 border-slate-900 text-[10px] font-black text-slate-900 uppercase tracking-widest"><th className="py-4">Description</th><th className="py-4 text-right">Amount (USD)</th></tr></thead>
+                <thead><tr className="border-b-4 border-[#102033] text-[10px] font-black text-[#102033] uppercase tracking-widest"><th className="py-4">Service Description</th><th className="py-4 text-right">Amount (USD)</th></tr></thead>
                 <tbody>
                   <tr>
                     <td className="py-6">
@@ -310,7 +385,7 @@ export const InvoiceModal: React.FC<Props> = ({ transaction, onClose }) => {
                 <tfoot>
                   <tr>
                     <td className="pt-10 text-right font-black text-slate-400 uppercase text-xs">Total Balance Due</td>
-                    <td className="pt-10 text-right"><p className="text-4xl font-black text-slate-950">{formatCurrency(transaction.grossRevenue)}</p></td>
+                    <td className="pt-10 text-right"><p className="text-4xl font-black text-[#102033]">{formatCurrency(transaction.grossRevenue)}</p></td>
                   </tr>
                 </tfoot>
               </table>
@@ -318,15 +393,22 @@ export const InvoiceModal: React.FC<Props> = ({ transaction, onClose }) => {
 
             {renderPaymentInstructions()}
 
+            <div className="mt-10 border-t border-[#E7DED0] pt-5 text-[10px] leading-relaxed text-slate-400 print:mt-8">
+              <p className="font-bold uppercase tracking-widest text-slate-500">Confidentiality and Terms</p>
+              <p className="mt-2">
+                This invoice is issued by OneBridge Stalwart LLC for professional services rendered. Please reference the invoice number on all remittances. Amounts are due according to the stated due date unless otherwise agreed in writing.
+              </p>
+            </div>
+
             {!stakeholdersNotified && (
                <div className="mt-12 print:hidden">
                   <button 
-                    onClick={handleNotifyStakeholders}
-                    disabled={sendingStakeholders}
+                    onClick={() => persistInvoice('issued')}
+                    disabled={savingInvoice}
                     className="w-full flex items-center justify-center gap-3 py-4 bg-slate-950 text-white rounded-2xl font-black text-sm hover:bg-black transition-all shadow-xl shadow-slate-900/20 active:scale-[0.98]"
                   >
-                     {sendingStakeholders ? <Loader2 className="w-5 h-5 animate-spin" /> : <Share2 className="w-5 h-5 text-emerald-400" />}
-                     {sendingStakeholders ? 'PROCESSANDO...' : 'PROTOCOLAR E NOTIFICAR'}
+                     {savingInvoice ? <Loader2 className="w-5 h-5 animate-spin" /> : <Share2 className="w-5 h-5 text-emerald-400" />}
+                     {savingInvoice ? 'SALVANDO...' : 'PROTOCOLAR INVOICE LOCAL'}
                   </button>
                </div>
             )}
