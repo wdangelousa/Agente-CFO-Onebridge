@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { FinancialData, InvoiceRecord, InvoiceStatus, PaymentMethod } from '../types';
 import { Logo } from './Logo';
 import { InvoiceService } from '../services/invoiceService';
+import { printWithSuggestedFileName } from '../utils/printDocument';
 import { X, Printer, Download, CreditCard, Smartphone, Landmark, QrCode, CheckCircle2, Loader2, Share2, PencilLine } from 'lucide-react';
 
 interface Props {
@@ -76,8 +77,12 @@ export const InvoiceModal: React.FC<Props> = ({ transaction, invoice, onInvoiceS
 
   if (!transaction) return null;
 
+  const suggestedFileName = `Onebridge-Invoice-${invoiceNumber || 'preview'}`;
+
   const handlePrint = () => {
-    window.print();
+    // Browser print-to-PDF using the existing print-ready A4 layout.
+    // Does not change invoice number or status.
+    printWithSuggestedFileName(suggestedFileName);
   };
 
   const persistInvoice = async (nextStatus: InvoiceStatus = status) => {
@@ -252,13 +257,16 @@ export const InvoiceModal: React.FC<Props> = ({ transaction, invoice, onInvoiceS
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-xl">
                        <button onClick={handlePrint} className="flex flex-col items-center justify-center gap-3 p-6 bg-slate-800 text-white rounded-xl hover:bg-slate-700 transition-all border border-slate-700">
                           <Download className="w-6 h-6 text-emerald-400" />
-                          <div><p className="font-black text-sm uppercase">Baixar PDF</p></div>
+                          <div><p className="font-black text-sm uppercase">Baixar / Imprimir PDF</p></div>
                        </button>
                        <button onClick={() => handleStatusChange('paid')} disabled={status === 'paid'} className={`flex flex-col items-center justify-center gap-3 p-6 rounded-xl transition-all border ${status === 'paid' ? 'bg-emerald-900 border-emerald-700 text-emerald-200' : 'bg-emerald-600 border-emerald-500 text-white hover:bg-emerald-500'}`}>
                           <CheckCircle2 className="w-6 h-6" />
                           <div><p className="font-black text-sm uppercase">{status === 'paid' ? 'Paga' : 'Marcar paga'}</p></div>
                        </button>
                     </div>
+                    <p className="mt-4 text-[10px] text-slate-500">
+                       No diálogo de impressão, escolha <span className="font-bold text-slate-300">Salvar como PDF</span>. Nome sugerido: <span className="font-mono text-emerald-400">{suggestedFileName}.pdf</span>
+                    </p>
                     <div className="mt-8 flex justify-center gap-6">
                       <button onClick={() => setStakeholdersNotified(false)} className="text-slate-500 text-[10px] font-black uppercase tracking-widest hover:text-emerald-400 transition-colors">Voltar para Edição</button>
                       <button onClick={() => handleStatusChange('cancelled')} className="text-red-300 text-[10px] font-black uppercase tracking-widest hover:text-red-400 transition-colors">Cancelar invoice</button>

@@ -4,6 +4,7 @@ import { DistributionResult, FinancialData, MonthlyClosingSnapshot, TransactionT
 import { calculateDistribution } from '../utils/calculations';
 import { buildIsoDate, formatDisplayDate, getIsoDatePart, getLastDayOfMonth } from '../utils/date';
 import { Logo } from './Logo';
+import { printWithSuggestedFileName } from '../utils/printDocument';
 import { X, Printer, CalendarRange, AlertCircle, ArrowUpCircle, Calendar, DollarSign } from 'lucide-react';
 
 interface Props {
@@ -99,8 +100,12 @@ export const ReportModal: React.FC<Props> = ({ transactions, closings, onClose, 
       || Math.abs(officialClosing.distributableProfit - filteredResult.distributableBalance) > 0.01;
   }, [filteredResult, officialClosing]);
 
-  const handlePrint = () => window.print();
+  const suggestedFileName = `Onebridge-Monthly-Closing-${referenceMonth}`;
+  // Browser print-to-PDF using the existing print-ready report layout. Read-only:
+  // uses already-calculated values, changes no data.
+  const handlePrint = () => printWithSuggestedFileName(suggestedFileName);
   const formatCurrency = (val: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
+  const exportedAt = useMemo(() => new Date().toLocaleString('pt-BR'), [referenceMonth, periodType, fortnightMode]);
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#071425]/75 backdrop-blur-sm print:static print:block print:overflow-visible print:bg-white print:p-0">
@@ -160,20 +165,27 @@ export const ReportModal: React.FC<Props> = ({ transactions, closings, onClose, 
           )}
 
           {/* Actions */}
-          <div className="ml-auto flex gap-3">
-            <button
-              onClick={handlePrint}
-              disabled={filteredTransactions.length === 0}
-              className="flex items-center gap-2 px-6 py-2.5 bg-[#102033] hover:bg-[#071425] text-white rounded-xl text-sm font-bold shadow-lg transition-all disabled:bg-slate-300 disabled:cursor-not-allowed active:scale-[0.98]"
-            >
-              <Printer className="w-4 h-4" /> Imprimir
-            </button>
-            <button
-              onClick={onClose}
-              className="p-2.5 hover:bg-slate-100 rounded-xl text-slate-500 transition-colors"
-            >
-              <X className="w-6 h-6" />
-            </button>
+          <div className="ml-auto flex flex-col items-end gap-1">
+            <div className="flex gap-3">
+              <button
+                onClick={handlePrint}
+                disabled={filteredTransactions.length === 0}
+                className="flex items-center gap-2 px-6 py-2.5 bg-[#102033] hover:bg-[#071425] text-white rounded-xl text-sm font-bold shadow-lg transition-all disabled:bg-slate-300 disabled:cursor-not-allowed active:scale-[0.98]"
+              >
+                <Printer className="w-4 h-4" /> Baixar / Imprimir PDF
+              </button>
+              <button
+                onClick={onClose}
+                className="p-2.5 hover:bg-slate-100 rounded-xl text-slate-500 transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            {filteredTransactions.length > 0 && (
+              <p className="text-[10px] text-slate-400">
+                No diálogo, escolha <span className="font-bold text-slate-600">Salvar como PDF</span>. Nome sugerido: <span className="font-mono text-slate-600">{suggestedFileName}.pdf</span>
+              </p>
+            )}
           </div>
         </div>
 
@@ -193,6 +205,7 @@ export const ReportModal: React.FC<Props> = ({ transactions, closings, onClose, 
                     <span className="tabular-nums">{formatDisplayDate(startDate)} até {formatDisplayDate(endDate)}</span>
                   </div>
                   <p className="mt-2.5 text-[10px] text-slate-400 font-mono uppercase">MONTH: {referenceMonth}</p>
+                  <p className="mt-1 text-[10px] text-slate-400 font-mono uppercase">Exportado: {exportedAt}</p>
                 </div>
               </div>
             </div>
