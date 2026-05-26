@@ -3,6 +3,16 @@
 
 Este repositório contém o MVP local-first do CFO da **OneBridge Stalwart LLC**, desenvolvido para registrar lançamentos financeiros, acompanhar meses, emitir invoices locais e preservar fechamentos mensais.
 
+## Current MVP Status
+
+- The app runs entirely **locally in the browser** — no server needed.
+- Data is saved in the browser's **`localStorage`**.
+- **Regular backup export is recommended** (especially after closing a month or issuing invoices), since clearing browser data also clears local records.
+- **No Supabase or remote database is required** at runtime.
+- **Invoices and monthly closings persist locally** alongside transactions and configurable options.
+- Financial logic is covered by tests — run them with **`npm run test:financial`**.
+- The production build runs with **`npm run build`** (currently warning-free).
+
 ## Local-first MVP
 
 O app roda localmente no navegador e salva os dados em `localStorage`. Ele não exige Supabase, login, banco remoto, migrations, RLS, SQL Editor ou credenciais administrativas para o MVP atual.
