@@ -18,6 +18,22 @@ export default defineConfig(({ mode }) => {
         alias: {
           '@': path.resolve(__dirname, '.'),
         }
+      },
+      build: {
+        rollupOptions: {
+          output: {
+            // Split heavy, rarely-changing dependencies into their own chunks so
+            // no single chunk trips Vite's 500 kB warning. Pure bundling change
+            // (no lazy loading, no behavior change).
+            manualChunks(id) {
+              if (!id.includes('node_modules')) return undefined;
+              if (id.includes('@google/genai')) return 'genai';
+              if (id.includes('lucide-react')) return 'icons';
+              if (id.includes('react') || id.includes('scheduler')) return 'react';
+              return 'vendor';
+            },
+          },
+        },
       }
     };
 });
