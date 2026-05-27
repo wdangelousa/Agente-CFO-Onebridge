@@ -9,6 +9,7 @@ Este repositório contém o MVP local-first do CFO da **OneBridge Stalwart LLC**
 - Data is saved in the browser's **`localStorage`**.
 - **Regular backup export is recommended** (especially after closing a month or issuing invoices), since clearing browser data also clears local records.
 - **No Supabase or remote database is required** at runtime.
+- Supabase sync is optional and manual; the app still starts and works without Supabase env vars.
 - **Invoices and monthly closings persist locally** alongside transactions and configurable options.
 - Financial logic is covered by tests — run them with **`npm run test:financial`**.
 - The production build runs with **`npm run build`** (currently warning-free).
@@ -61,6 +62,21 @@ As regras financeiras atuais do MVP estão documentadas em [docs/FINANCIAL_RULES
    ```
 
 Variáveis de ambiente de IA/Gemini são opcionais para o MVP financeiro local-first. O app deve abrir e operar sem Supabase.
+
+## Optional Supabase Backup/Sync
+
+Supabase is supported only as an optional manual backup/sync layer. It is not required for startup, and localStorage remains the source of day-to-day operation.
+
+To enable manual sync, configure these Vite environment variables locally:
+
+```bash
+VITE_SUPABASE_URL=
+VITE_SUPABASE_ANON_KEY=
+```
+
+Manual sync currently covers configurable options, official semi-monthly period closings, invoices, and invoice sequence state. Transaction sync is intentionally deferred until the existing remote `public.transactions` mapping is approved as safe.
+
+The Supabase tables use authenticated-only RLS policies. The app attempts optional Supabase authentication only when the user clicks a sync action; if Supabase is unavailable or not configured, local operation continues normally.
 
 ## Estrutura da Distribuição
 - **Evandro (Profiscal)**: 33.34%

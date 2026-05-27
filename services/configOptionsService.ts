@@ -334,4 +334,10 @@ export class ConfigOptionsService {
     this.writeOptions(importedOptions);
     return importedOptions;
   }
+
+  static async replaceAll(options: ConfigOption[]): Promise<ConfigOption[]> {
+    const normalizedOptions = this.mergeOptions([], this.normalizeStoredOptions(options));
+    this.writeOptions(normalizedOptions);
+    return normalizedOptions;
+  }
 }

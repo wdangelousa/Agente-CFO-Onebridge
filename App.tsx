@@ -12,13 +12,14 @@ import { calculateDistribution } from './utils/calculations';
 import { createStoredDate, formatDisplayDate, getDateMonthPart, getIsoDatePart, getLocalMonthPart } from './utils/date';
 import { PeriodHalf, getCurrentSemiMonthlyPeriod, getPeriodFromMonthAndHalf, getPreviousSemiMonthlyPeriod, getSemiMonthlyPeriodForDate, isDateInPeriod } from './utils/periods';
 import { Logo } from './components/Logo';
-import { Eraser, FilePlus2, FileBarChart, Calendar, ChevronLeft, ChevronRight, History, Zap, LayoutDashboard, PenLine, Bot, Activity, PieChart, LockKeyhole, Download, Upload, RotateCcw, FlaskConical } from 'lucide-react';
+import { Eraser, FilePlus2, FileBarChart, Calendar, ChevronLeft, ChevronRight, History, Zap, LayoutDashboard, PenLine, Bot, Activity, PieChart, LockKeyhole, Download, Upload, RotateCcw, FlaskConical, CloudUpload, CloudDownload } from 'lucide-react';
 import { TransactionService } from './services/transactionService';
 import { MonthlyClosingService } from './services/monthlyClosingService';
 import { PeriodClosingService } from './services/periodClosingService';
 import { LocalBackupService } from './services/localBackupService';
 import { InvoiceService } from './services/invoiceService';
 import { DemoDataService } from './services/demoDataService';
+import { SupabaseSyncService, SupabaseSyncInfo } from './services/supabaseSyncService';
 
 // Dev-only: demo data seeding is hidden in production builds and is never
 // triggered automatically — it only runs from the manual button below.
@@ -141,6 +142,8 @@ export default function App() {
   const [loadingData, setLoadingData] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<SaveFeedback>(null);
   const [formResetToken, setFormResetToken] = useState(0);
+  const [syncInfo, setSyncInfo] = useState<SupabaseSyncInfo>(() => SupabaseSyncService.getLastSyncInfo());
+  const [syncing, setSyncing] = useState<'push' | 'pull' | null>(null);
 
   // Mobile Navigation State
   const [activeTab, setActiveTab] = useState<MobileTab>('form');
@@ -527,6 +530,70 @@ export default function App() {
     }
   };
 
+  const refreshLocalState = async () => {
+    const [transactions, periods, legacyClosings, localInvoices] = await Promise.all([
+      TransactionService.fetchAll(),
+      PeriodClosingService.fetchAll(),
+      MonthlyClosingService.fetchAll(),
+      InvoiceService.fetchAll(),
+    ]);
+    setAllTransactions(transactions);
+    setPeriodClosings(periods);
+    setMonthlyClosings(legacyClosings);
+    setInvoices(localInvoices);
+  };
+
+  const handlePushSupabaseBackup = async () => {
+    if (!SupabaseSyncService.isSupabaseConfigured()) {
+      setSaveFeedback({ kind: 'error', message: 'Supabase não está configurado. Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY para usar sync opcional.' });
+      return;
+    }
+
+    if (!confirm('Enviar opções, fechamentos quinzenais, invoices e sequência local para o Supabase? Transações não serão sincronizadas nesta fase.')) return;
+
+    setSyncing('push');
+    setSaveFeedback(null);
+    try {
+      const result = await SupabaseSyncService.pushLocalBackupToSupabase();
+      setSyncInfo(SupabaseSyncService.getLastSyncInfo());
+      setSaveFeedback({ kind: 'success', message: result.message });
+    } catch (error) {
+      console.error(error);
+      setSaveFeedback({
+        kind: 'error',
+        message: error instanceof Error ? error.message : 'Não foi possível enviar backup ao Supabase.',
+      });
+    } finally {
+      setSyncing(null);
+    }
+  };
+
+  const handlePullSupabaseBackup = async () => {
+    if (!SupabaseSyncService.isSupabaseConfigured()) {
+      setSaveFeedback({ kind: 'error', message: 'Supabase não está configurado. Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY para usar sync opcional.' });
+      return;
+    }
+
+    if (!confirm('Restaurar opções, fechamentos quinzenais, invoices e sequência a partir do Supabase? Os dados serão mesclados localmente; transações não serão sincronizadas nesta fase.')) return;
+
+    setSyncing('pull');
+    setSaveFeedback(null);
+    try {
+      const result = await SupabaseSyncService.pullBackupFromSupabase();
+      await refreshLocalState();
+      setSyncInfo(SupabaseSyncService.getLastSyncInfo());
+      setSaveFeedback({ kind: 'success', message: result.message });
+    } catch (error) {
+      console.error(error);
+      setSaveFeedback({
+        kind: 'error',
+        message: error instanceof Error ? error.message : 'Não foi possível restaurar backup do Supabase.',
+      });
+    } finally {
+      setSyncing(null);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#F8F9FA] pb-24 lg:pb-12 print:bg-white print:pb-0 font-sans">
       <div className="print:hidden">
@@ -583,6 +650,9 @@ export default function App() {
               </button>
               <button onClick={handleImportAll} className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 text-[#6C757D] hover:text-[#1A1C22] text-xs rounded-lg border border-transparent hover:border-slate-200 transition-all">
                 <Upload className="w-3 h-3" /> Importar
+              </button>
+              <button onClick={handlePushSupabaseBackup} disabled={syncing !== null} className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 text-[#6C757D] hover:text-[#1A1C22] text-xs rounded-lg border border-transparent hover:border-slate-200 transition-all disabled:opacity-50">
+                <CloudUpload className="w-3 h-3" /> Sync
               </button>
               <button onClick={handleResetLocalData} className="flex items-center gap-2 px-3 py-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 text-xs rounded-lg border border-transparent hover:border-red-100 transition-colors">
                 <RotateCcw className="w-3 h-3" /> Reset
@@ -709,6 +779,38 @@ export default function App() {
                 <p className="mt-3 text-[10px] font-semibold text-amber-700">
                   Local-first mode: seus dados ficam salvos neste navegador. Exporte backups regulares para preservar o histórico financeiro.
                 </p>
+                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Supabase opcional</p>
+                      <p className="mt-1 text-xs font-semibold text-slate-700">
+                        Status: {SupabaseSyncService.isSupabaseConfigured() ? 'configurado' : 'não configurado'} · sync manual de backup, sem transações nesta fase.
+                      </p>
+                      <p className="mt-1 text-[10px] text-slate-500">
+                        Último sync: {syncInfo.lastSyncAt ? formatDisplayDate(syncInfo.lastSyncAt) : 'nunca'}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handlePushSupabaseBackup}
+                        disabled={syncing !== null}
+                        className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-bold uppercase text-slate-700 shadow-sm hover:border-[#D8B98B] disabled:opacity-50"
+                      >
+                        <CloudUpload className="w-3 h-3" /> {syncing === 'push' ? 'Enviando...' : 'Enviar'}
+                      </button>
+                      <button
+                        onClick={handlePullSupabaseBackup}
+                        disabled={syncing !== null}
+                        className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-bold uppercase text-slate-700 shadow-sm hover:border-[#D8B98B] disabled:opacity-50"
+                      >
+                        <CloudDownload className="w-3 h-3" /> {syncing === 'pull' ? 'Restaurando...' : 'Restaurar'}
+                      </button>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-[10px] font-semibold text-amber-700">
+                    Opcional: o app continua local-first mesmo sem Supabase ou internet.
+                  </p>
+                </div>
               </div>
               <div className="px-5 pb-5 lg:pb-0">
                 <div className="mb-3 grid grid-cols-2 gap-2 text-[10px] text-slate-500">
