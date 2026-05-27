@@ -268,6 +268,117 @@ Suggested JSON structure:
 - `totals`: revenue, COGS, OpEx, external commissions, origination fee, reserve, distributable profit, and any other audited totals.
 - `partner_distributions`: Evandro, Julia/Samuel, Walter.
 
+## Proposed Sync Tables
+
+Review-only migration file:
+
+- `supabase/migrations/20260527023745_create_optional_sync_tables.sql`
+
+This migration is non-destructive because it only proposes new optional sync/backup tables and one shared `public.set_updated_at()` trigger function. It does not alter `public.transactions`, does not alter `public.reports`, does not delete data, and has not been applied to the remote database.
+
+### `public.configurable_options`
+
+Why needed:
+
+- Mirrors `onebridge_cfo_configurable_options_v1`.
+- Preserves dynamic service modalities, expense descriptions, originators, and reimbursement parties.
+- Allows cloud backup/sync of user-created options without hardcoding them into the app.
+
+Mapping:
+
+- `local_id` stores the browser-local option ID.
+- `type`, `label`, `value`, `metadata`, `is_active`, `created_at`, and `updated_at` map directly to the local option model.
+- `unique(type, value)` preserves local duplicate-prevention semantics.
+
+RLS:
+
+- Authenticated users can select, insert, and update.
+- No anonymous write policies.
+- No delete policy in this proposal; deactivation should use `is_active`.
+
+### `public.period_closings`
+
+Why needed:
+
+- Mirrors `onebridge_cfo_period_closings_v1`.
+- Provides the official Supabase model for semi-monthly closing snapshots.
+- Keeps official distribution closings separate from monthly management summaries.
+
+Mapping:
+
+- `period_type`, `period_key`, `month_key`, `half`, `start_date`, `end_date`, `label`, `closed_at`, and `notes` map directly to the local `PeriodClosingSnapshot`.
+- `totals` stores revenue, COGS, OpEx, external commissions, origination fee, reserve, and distributable profit.
+- `partner_distributions` stores the partner payout buckets.
+- `transaction_ids` stores the exact transactions included in the official closing.
+- `local_id` preserves the browser-local closing ID.
+
+Semi-monthly rule:
+
+- H1 = day 1 through day 15.
+- H2 = day 16 through the last day of the month.
+- Monthly summaries remain management-only and are not official closings.
+
+RLS:
+
+- Authenticated users can select, insert, and update.
+- No anonymous write policies.
+- No delete policy in this proposal.
+
+### `public.invoices`
+
+Why needed:
+
+- Mirrors `onebridge_cfo_invoices_v1`.
+- Preserves local invoice lifecycle separately from transaction records.
+- Avoids treating `transactions.invoice_number` as the invoice source of truth.
+
+Mapping:
+
+- `local_id` stores the browser-local invoice ID.
+- `invoice_number`, `status`, `issued_at`, `due_date`, `transaction_ids`, `payer_name`, `service_description`, `subtotal`, `total`, `currency`, `notes`, `created_at`, and `updated_at` map to the local invoice record.
+- `metadata` is reserved for future non-formula operational fields.
+- `payer_email` is available for later sync from transaction/client metadata.
+
+RLS:
+
+- Authenticated users can select, insert, and update.
+- No anonymous write policies.
+- No delete policy in this proposal; cancellation should use `status = 'cancelled'`.
+
+### `public.invoice_sequences`
+
+Why needed:
+
+- Mirrors `onebridge_cfo_invoice_sequence_v1`.
+- Preserves the current deterministic invoice numbering model.
+- Prevents cloud sync from accidentally regenerating invoice numbers.
+
+Mapping:
+
+- `sequence_key` can be the year or another stable local sequence key.
+- `year`, `last_number`, and `prefix` preserve the local sequence state.
+
+RLS:
+
+- Authenticated users can select, insert, and update.
+- No anonymous write policies.
+- No delete policy in this proposal.
+
+### Existing `public.transactions`
+
+This pass intentionally does not alter `public.transactions`.
+
+Later, it likely needs a separate migration for:
+
+- `local_id` to preserve browser-local IDs.
+- `sync_status` if manual sync/restore needs explicit state.
+- `updated_at` for conflict detection.
+- `deleted_at` if soft-delete sync is required.
+- `metadata` for non-formula operational metadata.
+- explicit `competence_month` only if remote monthly management summaries need to match local views without deriving from `date`.
+
+The existing `date` field is compatible with H1/H2 filtering and should remain the official period boundary source.
+
 ## F. Recommended Architecture
 
 ### Preferred: Local-First App + Supabase Sync/Backup Layer
