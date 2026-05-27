@@ -20,6 +20,7 @@ import { LocalBackupService } from './services/localBackupService';
 import { InvoiceService } from './services/invoiceService';
 import { DemoDataService } from './services/demoDataService';
 import { SupabaseSyncService, SupabaseSyncInfo } from './services/supabaseSyncService';
+import { getCurrentUserEmail, signInForSync, signOutFromSync } from './services/supabaseClient';
 
 // Dev-only: demo data seeding is hidden in production builds and is never
 // triggered automatically — it only runs from the manual button below.
@@ -144,6 +145,10 @@ export default function App() {
   const [formResetToken, setFormResetToken] = useState(0);
   const [syncInfo, setSyncInfo] = useState<SupabaseSyncInfo>(() => SupabaseSyncService.getLastSyncInfo());
   const [syncing, setSyncing] = useState<'push' | 'pull' | null>(null);
+  const [syncEmail, setSyncEmail] = useState('');
+  const [syncPassword, setSyncPassword] = useState('');
+  const [syncUserEmail, setSyncUserEmail] = useState<string | null>(null);
+  const [syncAuthLoading, setSyncAuthLoading] = useState(false);
 
   // Mobile Navigation State
   const [activeTab, setActiveTab] = useState<MobileTab>('form');
@@ -177,6 +182,19 @@ export default function App() {
     };
 
     loadLocalData();
+  }, []);
+
+  useEffect(() => {
+    const loadSyncSession = async () => {
+      if (!SupabaseSyncService.isSupabaseConfigured()) {
+        setSyncUserEmail(null);
+        return;
+      }
+
+      setSyncUserEmail(await getCurrentUserEmail());
+    };
+
+    loadSyncSession();
   }, []);
 
   useEffect(() => {
@@ -549,6 +567,11 @@ export default function App() {
       return;
     }
 
+    if (!syncUserEmail) {
+      setSaveFeedback({ kind: 'error', message: 'Supabase está configurado, mas o sync requer login.' });
+      return;
+    }
+
     if (!confirm('Enviar opções, fechamentos quinzenais, invoices e sequência local para o Supabase? Transações não serão sincronizadas nesta fase.')) return;
 
     setSyncing('push');
@@ -574,6 +597,11 @@ export default function App() {
       return;
     }
 
+    if (!syncUserEmail) {
+      setSaveFeedback({ kind: 'error', message: 'Supabase está configurado, mas o sync requer login.' });
+      return;
+    }
+
     if (!confirm('Restaurar opções, fechamentos quinzenais, invoices e sequência a partir do Supabase? Os dados serão mesclados localmente; transações não serão sincronizadas nesta fase.')) return;
 
     setSyncing('pull');
@@ -591,6 +619,54 @@ export default function App() {
       });
     } finally {
       setSyncing(null);
+    }
+  };
+
+  const handleSignInForSync = async () => {
+    if (!SupabaseSyncService.isSupabaseConfigured()) {
+      setSaveFeedback({ kind: 'error', message: 'Supabase não está configurado. Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY para usar sync opcional.' });
+      return;
+    }
+
+    if (!syncEmail.trim() || !syncPassword) {
+      setSaveFeedback({ kind: 'error', message: 'Informe email e senha para entrar no Supabase Sync.' });
+      return;
+    }
+
+    setSyncAuthLoading(true);
+    setSaveFeedback(null);
+    try {
+      const email = await signInForSync(syncEmail.trim(), syncPassword);
+      setSyncUserEmail(email);
+      setSyncPassword('');
+      setSaveFeedback({ kind: 'success', message: `Supabase Sync conectado como ${email}.` });
+    } catch (error) {
+      console.error(error);
+      setSaveFeedback({
+        kind: 'error',
+        message: error instanceof Error ? error.message : 'Não foi possível entrar no Supabase Sync.',
+      });
+    } finally {
+      setSyncAuthLoading(false);
+    }
+  };
+
+  const handleSignOutFromSync = async () => {
+    setSyncAuthLoading(true);
+    setSaveFeedback(null);
+    try {
+      await signOutFromSync();
+      setSyncUserEmail(null);
+      setSyncPassword('');
+      setSaveFeedback({ kind: 'success', message: 'Supabase Sync desconectado.' });
+    } catch (error) {
+      console.error(error);
+      setSaveFeedback({
+        kind: 'error',
+        message: error instanceof Error ? error.message : 'Não foi possível sair do Supabase Sync.',
+      });
+    } finally {
+      setSyncAuthLoading(false);
     }
   };
 
@@ -651,7 +727,7 @@ export default function App() {
               <button onClick={handleImportAll} className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 text-[#6C757D] hover:text-[#1A1C22] text-xs rounded-lg border border-transparent hover:border-slate-200 transition-all">
                 <Upload className="w-3 h-3" /> Importar
               </button>
-              <button onClick={handlePushSupabaseBackup} disabled={syncing !== null} className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 text-[#6C757D] hover:text-[#1A1C22] text-xs rounded-lg border border-transparent hover:border-slate-200 transition-all disabled:opacity-50">
+              <button onClick={handlePushSupabaseBackup} disabled={syncing !== null || !syncUserEmail} className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 text-[#6C757D] hover:text-[#1A1C22] text-xs rounded-lg border border-transparent hover:border-slate-200 transition-all disabled:opacity-50">
                 <CloudUpload className="w-3 h-3" /> Sync
               </button>
               <button onClick={handleResetLocalData} className="flex items-center gap-2 px-3 py-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 text-xs rounded-lg border border-transparent hover:border-red-100 transition-colors">
@@ -782,9 +858,13 @@ export default function App() {
                 <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Supabase opcional</p>
+                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Optional Supabase Backup</p>
                       <p className="mt-1 text-xs font-semibold text-slate-700">
-                        Status: {SupabaseSyncService.isSupabaseConfigured() ? 'configurado' : 'não configurado'} · sync manual de backup, sem transações nesta fase.
+                        Status: {!SupabaseSyncService.isSupabaseConfigured()
+                          ? 'not configured'
+                          : syncUserEmail
+                            ? `signed in as ${syncUserEmail}`
+                            : 'configured, not signed in'}
                       </p>
                       <p className="mt-1 text-[10px] text-slate-500">
                         Último sync: {syncInfo.lastSyncAt ? formatDisplayDate(syncInfo.lastSyncAt) : 'nunca'}
@@ -793,20 +873,62 @@ export default function App() {
                     <div className="flex gap-2">
                       <button
                         onClick={handlePushSupabaseBackup}
-                        disabled={syncing !== null}
+                        disabled={syncing !== null || !syncUserEmail}
                         className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-bold uppercase text-slate-700 shadow-sm hover:border-[#D8B98B] disabled:opacity-50"
                       >
                         <CloudUpload className="w-3 h-3" /> {syncing === 'push' ? 'Enviando...' : 'Enviar'}
                       </button>
                       <button
                         onClick={handlePullSupabaseBackup}
-                        disabled={syncing !== null}
+                        disabled={syncing !== null || !syncUserEmail}
                         className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-bold uppercase text-slate-700 shadow-sm hover:border-[#D8B98B] disabled:opacity-50"
                       >
                         <CloudDownload className="w-3 h-3" /> {syncing === 'pull' ? 'Restaurando...' : 'Restaurar'}
                       </button>
                     </div>
                   </div>
+                  {SupabaseSyncService.isSupabaseConfigured() && (
+                    <div className="mt-3 grid gap-2 lg:grid-cols-[1fr_1fr_auto]">
+                      <input
+                        type="email"
+                        value={syncEmail}
+                        onChange={(event) => setSyncEmail(event.target.value)}
+                        placeholder="Email"
+                        autoComplete="username"
+                        disabled={!!syncUserEmail || syncAuthLoading}
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 outline-none focus:border-[#D8B98B] disabled:bg-slate-100"
+                      />
+                      <input
+                        type="password"
+                        value={syncPassword}
+                        onChange={(event) => setSyncPassword(event.target.value)}
+                        placeholder="Password"
+                        autoComplete="current-password"
+                        disabled={!!syncUserEmail || syncAuthLoading}
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 outline-none focus:border-[#D8B98B] disabled:bg-slate-100"
+                      />
+                      {syncUserEmail ? (
+                        <button
+                          onClick={handleSignOutFromSync}
+                          disabled={syncAuthLoading}
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-bold uppercase text-slate-700 shadow-sm hover:border-[#D8B98B] disabled:opacity-50"
+                        >
+                          Sign out
+                        </button>
+                      ) : (
+                        <button
+                          onClick={handleSignInForSync}
+                          disabled={syncAuthLoading}
+                          className="rounded-lg bg-[#102033] px-3 py-2 text-[10px] font-bold uppercase text-white shadow-sm hover:bg-[#071425] disabled:opacity-50"
+                        >
+                          {syncAuthLoading ? 'Signing in...' : 'Sign in for Sync'}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  <p className="mt-2 text-[10px] font-semibold text-slate-500">
+                    Sign in only to sync. The app continues working locally without sign-in.
+                  </p>
                   <p className="mt-2 text-[10px] font-semibold text-amber-700">
                     Opcional: o app continua local-first mesmo sem Supabase ou internet.
                   </p>

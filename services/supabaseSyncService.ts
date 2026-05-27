@@ -1,7 +1,7 @@
 import { ConfigOption, ConfigOptionsService } from './configOptionsService';
 import { InvoiceService } from './invoiceService';
 import { PeriodClosingService } from './periodClosingService';
-import { getSupabaseClient, isSupabaseConfigured as hasSupabaseEnv } from './supabaseClient';
+import { getCurrentSession, getSupabaseClient, isSupabaseConfigured as hasSupabaseEnv } from './supabaseClient';
 import { InvoiceRecord, PeriodClosingSnapshot } from '../types';
 
 const SYNC_INFO_STORAGE_KEY = 'onebridge_cfo_supabase_sync_info_v1';
@@ -127,12 +127,9 @@ async function requireSupabaseClient() {
     throw new Error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable optional sync.');
   }
 
-  const { data } = await client.auth.getSession();
-  if (!data.session) {
-    const { error } = await client.auth.signInAnonymously();
-    if (error) {
-      throw new Error(`Supabase is configured, but no authenticated session is available for RLS-protected sync. ${error.message}`);
-    }
+  const session = await getCurrentSession();
+  if (!session) {
+    throw new Error('Supabase is configured, but sync requires sign-in.');
   }
 
   return client;

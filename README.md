@@ -76,7 +76,9 @@ VITE_SUPABASE_ANON_KEY=
 
 Manual sync currently covers configurable options, official semi-monthly period closings, invoices, and invoice sequence state. Transaction sync is intentionally deferred until the existing remote `public.transactions` mapping is approved as safe.
 
-The Supabase tables use authenticated-only RLS policies. The app attempts optional Supabase authentication only when the user clicks a sync action; if Supabase is unavailable or not configured, local operation continues normally.
+The Supabase tables use authenticated-only RLS policies. Manual sync requires signing in with a Supabase Auth email/password account inside the backup panel. Anonymous sync is not used, and if Supabase is unavailable, not configured, or not signed in, local operation continues normally.
+
+Transaction sync is not enabled yet. The optional sync layer currently covers only configurable options, official semi-monthly period closings, invoices, and invoice sequence state.
 
 ## Estrutura da Distribuição
 - **Evandro (Profiscal)**: 33.34%
